@@ -10,5 +10,6 @@ docker run -it --rm  \
     -v $XSOCK:$XSOCK \
     -v $HOME/.Xauthority:/root/.Xauthority \
     -v `pwd`/semantic-scene-completion:/usr/src/app/semantic-scene-completion \
+    -v /media/jdgalviss/JDG/TUM/ssc/data/semantickitti/dataset/dataset/:/usr/src/app/data \
     --shm-size 8G \
     ssc "$@"

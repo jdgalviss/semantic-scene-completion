@@ -39,5 +39,24 @@ RUN /bin/bash -c "git clone https://github.com/xheon/MinkowskiEngine.git; cd Min
 # RUN pip install k3d
 RUN /bin/bash -c "jupyter nbextension install --py --user k3d; jupyter nbextension enable --py --user k3d"
 
+# SemanticKITTI API
+WORKDIR /usr/src/app
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+    apt-get install -y python3-pyqt5.qtopengl \
+    && apt-get -y clean all \
+    && rm -rf /var/lib/apt/lists/*
+RUN /bin/bash -c "git clone https://github.com/PRBonn/semantic-kitti-api.git; cd semantic-kitti-api; pip install -r requirements.txt"
+
+# spconv (for Voxel data generation) - TODO: Remove?
+# RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
+#     apt-get -y install libboost-all-dev \
+#     libssl-dev \
+#     && apt-get -y clean all \
+#     && rm -rf /var/lib/apt/lists/*
+# RUN /bin/bash -c "cd /tmp; wget https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0.tar.gz; tar -zxvf cmake-3.20.0.tar.gz; cd cmake-3.20.0; ./bootstrap; make -j4; make install"
+# WORKDIR /usr/src/app
+# RUN /bin/bash -c "git clone https://github.com/llijiang/PointGroup.git --recursive"
+
+
 WORKDIR /usr/src/app/semantic-scene-completion
 
