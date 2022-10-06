@@ -11,6 +11,7 @@ import yaml
 from torch.utils.data import Dataset
 import torch
 import math
+from spconv.pytorch.utils import PointToVoxel
 
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
@@ -19,7 +20,6 @@ remapdict = kitti_config["learning_map"]
 SPLIT_SEQUENCES = {
     # "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
     "train": ["00"],
-
     "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"]
 }
@@ -51,7 +51,6 @@ def unpack(compressed):
 class SemanticKITTIDataset(Dataset):
     def __init__(self, config, split="train", augment=False):
         """ Load data from given dataset directory. """
-
         self.config = config
         self.augment = augment
         self.files = {}
@@ -60,13 +59,11 @@ class SemanticKITTIDataset(Dataset):
         # Create dictionary where keys are each ones of the extensions present in the split
         for ext in SPLIT_FILES[split]:
             self.files[EXT_TO_NAME[ext]] = []
-
         self.label_to_names = {0: 'car', 1: 'bicycle', 2: 'motorcycle', 3: 'truck',
                                4: 'other-vehicle', 5: 'person', 6: 'bicyclist', 7: 'motorcyclist',
                                8: 'road', 9: 'parking', 10: 'sidewalk', 11: 'other-ground', 12: 'building',
                                13: 'fence', 14: 'vegetation', 15: 'trunk', 16: 'terrain', 17: 'pole',
                                18: 'traffic-sign'}
-
         # Iterate over all sequences present in split
         for sequence in SPLIT_SEQUENCES[split]:
             # Form path to voxels in split
@@ -74,16 +71,25 @@ class SemanticKITTIDataset(Dataset):
             if not os.path.exists(complete_path): raise RuntimeError("Voxel directory missing: " + complete_path)
 
             files = os.listdir(complete_path)
+            
+
             for ext in SPLIT_FILES[split]:
                 # Obtain paths for all files with given extansion and sort
                 comletion_data = sorted([os.path.join(complete_path, f) for f in files if f.endswith(ext)])
                 if len(comletion_data) == 0: raise RuntimeError("Missing data for " + EXT_TO_NAME[ext])
                 # Add paths to dictionary
+                if(config.GENERAL.OVERFIT):
+                    comletion_data = [comletion_data[0]]
+
                 self.files[EXT_TO_NAME[ext]].extend(comletion_data)
 
             self.filenames.extend(
                 sorted([(sequence, os.path.splitext(f)[0]) for f in files if f.endswith(SPLIT_FILES[split][0])]))
-
+            
+        
+        if(config.GENERAL.OVERFIT):
+            self.filenames = [self.filenames[0]]
+        
         self.num_files = len(self.filenames)
         remapdict = kitti_config["learning_map"]
         # make lookup table for mapping
@@ -119,6 +125,14 @@ class SemanticKITTIDataset(Dataset):
             self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
             self.seg_labelweights = torch.Tensor(np.ones(19))
             self.compl_labelweights[0] = 1
+        
+        self.voxel_generator = PointToVoxel(
+            vsize_xyz=[config.COMPLETION.VOXEL_SIZE]*3,
+            coors_range_xyz=config.COMPLETION.POINT_CLOUD_RANGE,
+            num_point_features=4, # or 3??
+            max_num_points_per_voxel=20,
+            max_num_voxels=256 * 256 * 32
+        )
 
     def __len__(self):
         return self.num_files
@@ -174,6 +188,18 @@ class SemanticKITTIDataset(Dataset):
         '''Generate Alignment Data'''
         aliment_collection = {}
         xyz = xyz[idxs]
+        pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1)],-1))
+        voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
+        voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
+        # print(voxel_centers.shape)
+        voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
+        voxel_centers += torch.Tensor(self.voxel_generator.coors_range[0:3])
+        aliment_collection.update({
+            'voxels': voxels,
+            'coords': coords,
+            'voxel_centers': voxel_centers,
+            'num_points_per_voxel': num_points_per_voxel,
+        })
 
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
@@ -244,3 +270,57 @@ def tensor_augmentation(st, states):
 
     return st
 
+def Merge(tbl):
+    seg_coords = []
+    seg_features = []
+    seg_labels = []
+    complet_coords = []
+    complet_invalid = []
+    voxel_centers = []
+    complet_invoxel_features = []
+    complet_labels = []
+    filenames = []
+    offset = 0
+    input_vx = []
+    stats = []
+    for idx, example in enumerate(tbl):
+        filename, completion_collection, aliment_collection, segmentation_collection = example
+        '''File Name'''
+        filenames.append(filename)
+
+        '''Segmentation'''
+        seg_coord = segmentation_collection['coords']
+        seg_coords.append(torch.cat([seg_coord, torch.LongTensor(seg_coord.shape[0], 1).fill_(idx)], 1))
+        seg_labels.append(segmentation_collection['label'])
+        seg_features.append(segmentation_collection['feature'])
+
+        '''Completion'''
+        complet_coord = aliment_collection['coords']
+        complet_coords.append(torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1))
+
+        input_vx.append(completion_collection['input'])
+        complet_labels.append(completion_collection['label'])
+        complet_invalid.append(completion_collection['invalid'])
+        stats.append(completion_collection['stat'])
+
+        voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
+        complet_invoxel_feature = aliment_collection['voxels']
+        complet_invoxel_feature[:, :, -1] += offset  # voxel-to-point mapping in the last column
+        offset += seg_coord.shape[0]
+        complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
+
+    seg_inputs = {'seg_coords': torch.cat(seg_coords, 0),
+                  'seg_labels': torch.cat(seg_labels, 0),
+                  'seg_features': torch.cat(seg_features, 0)
+                  }
+
+    complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
+                      'complet_input': torch.cat(input_vx, 0),
+                      'voxel_centers': torch.cat(voxel_centers, 0),
+                      'complet_invalid': torch.cat(complet_invalid, 0),
+                      'complet_labels': torch.cat(complet_labels, 0),
+                      'state': stats,
+                      'complet_invoxel_features': torch.cat(complet_invoxel_features, 0)
+                      }
+
+    return seg_inputs, complet_inputs, completion_collection, filenames
