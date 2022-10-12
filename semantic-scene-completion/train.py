@@ -36,7 +36,7 @@ def main():
                                           weight_decay=config.SOLVER.WEIGHT_DECAY)
 
     training_epoch = 0
-    steps_schedule = 10
+    steps_schedule = 40
     for epoch in range(training_epoch, training_epoch+100):
         model.train()
         if epoch>steps_schedule:
@@ -55,15 +55,21 @@ def main():
 
             # Forward pass through model
             losses = model(complet_coords, complet_invalid, complet_labels)
-            total_loss = losses['occupancy_128'] * config.MODEL.OCCUPANCY_128_WEIGHT + losses['semantic_128']*config.MODEL.SEMANTIC_128_WEIGHT
+            
+            total_loss = losses['128/occupancy'] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["128/semantic"]*config.MODEL.SEMANTIC_128_WEIGHT 
+            if config.GENERAL.LEVEL == "256":
+                total_loss += losses["256/occupancy"]*config.MODEL.OCCUPANCY_256_WEIGHT + losses["256/semantic"]*config.MODEL.SEMANTIC_256_WEIGHT
             
             # Loss backpropagation, optimizer & scheduler step
 
             if torch.is_tensor(total_loss):
                 total_loss.backward()
                 optimizer.step()
-                print("\rstep: {}, loss_occupancy_128: {}, loss_semantic_128: {}, total_loss: {}".format(epoch, losses['occupancy_128'], losses['semantic_128'], total_loss))
-
+                log_msg = "\r step: {}, ".format(epoch)
+                for k, v in losses.items():
+                    log_msg += "{}: {:.4f}, ".format(k, v)
+                log_msg += "total_loss: {:.4f}".format(total_loss)
+                print(log_msg)
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
 

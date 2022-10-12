@@ -48,6 +48,8 @@ _C.SEGMENTATION.NUM_CLASSES = 25
 _C.MODEL = Node() 
 _C.MODEL.OCCUPANCY_128_WEIGHT = 0.2
 _C.MODEL.SEMANTIC_128_WEIGHT = 0.2   
+_C.MODEL.OCCUPANCY_256_WEIGHT = 0.5
+_C.MODEL.SEMANTIC_256_WEIGHT = 1.0   
 
 # -----------------------------------------------------------------------------
 # SOLVER CONFIGS

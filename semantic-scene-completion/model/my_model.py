@@ -68,8 +68,13 @@ class MyModel(nn.Module):
         if predictions[0] is None:
             return losses
         
-        losses_256, results_256 = self.forward_256(predictions[0], complet_labels)
+        losses_256, results_256, features_256 = self.forward_256(predictions[0], complet_labels)
+        losses.update(losses_256)
+        results.update(results_256)
 
+        losses_output, results_output = self.forward_output(features_256, complet_labels)
+        losses.update(losses_output)
+        results.update(results_output)
 
         # output_features = predictions[0]
         # print("output_features: ", output_features.shape)
@@ -103,12 +108,59 @@ class MyModel(nn.Module):
 
         return losses
 
+    def forward_output(self, predictions: List[Me.SparseTensor], targets) -> Tuple[Dict, Dict]:
+        hierarchy_losses = {}
+        hierarchy_results = {}
+
+        # Semantics
+        semantic_prediction = self.semantic_head(predictions)
+        # print("\nsemantic_prediction: ", semantic_prediction.shape)
+        if semantic_prediction is not None:
+            semantic_ground_truth: torch.LongTensor = targets.long()
+            semantic_loss, semantic_result = self.compute_semantic_256_loss(semantic_prediction, semantic_ground_truth)
+            hierarchy_losses.update(semantic_loss)
+            # hierarchy_results.update(semantic_result)
+        return hierarchy_losses, hierarchy_results
+
+    def compute_semantic_256_loss(self, prediction: Me.SparseTensor, ground_truth: torch.Tensor) -> Tuple[Dict, Dict]:
+        prediction = mask_invalid_sparse_voxels(prediction)
+        predicted_coordinates = prediction.C.long()
+        # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
+        predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
+
+        # Get sparse GT values from dense tensor
+        ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
+        # print("semantic_ground_truth values_256: ", ground_truth_values.shape)
+        # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
+
+        # print("prediction.F values_256: ", prediction.F.shape)
+        # print("prediction.F values: ", torch.unique(prediction.F))
+
+
+        loss_mean = self.criterion_semantics(prediction.F, ground_truth_values.squeeze(), reduction="mean", ignore_index=255)
+
+        # Get sparse weighting values from dense tensor
+
+        # if len(loss) > 0:
+        #     loss_mean = loss.mean()
+        # else:
+        #     loss_mean = 0
+
+        semantic_softmax = Me.MinkowskiSoftmax(dim=1)(prediction)
+        semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
+                                          coordinate_map_key=prediction.coordinate_map_key,
+                                          coordinate_manager=prediction.coordinate_manager)
+
+        return {"256/semantic": loss_mean}, {"256/semantic_softmax": semantic_softmax, "256/semantic_labels": semantic_labels}
+
     def forward_256(self, predictions, labels):
         hierarchy_losses = {}
         hierarchy_results = {}
 
         feature_prediction: Me.SparseTensor = predictions
-        print("\feature_prediction: ", feature_prediction.shape)
+        feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
+
+        # print("feature_prediction: ", feature_prediction.shape)
 
 
         if feature_prediction is not None:
@@ -118,21 +170,21 @@ class MyModel(nn.Module):
             one = torch.ones([1], device=device)
             zero = torch.zeros([1], device=device)
             occupancy_ground_truth = torch.where(labels > 0, one, zero)
-            print("occupancy_gt: ", occupancy_ground_truth.shape)
-            print("occupancy_gt values:", torch.unique(occupancy_ground_truth))
+            # print("occupancy_gt: ", occupancy_ground_truth.shape)
+            # print("occupancy_gt values:", torch.unique(occupancy_ground_truth))
 
             occupancy_loss, occupancy_result = self.compute_occupancy_256_loss(occupancy_prediction,
                                                                                occupancy_ground_truth)
 
             hierarchy_losses.update(occupancy_loss)
-            hierarchy_results.update(occupancy_result)
+            # hierarchy_results.update(occupancy_result)
 
             # Use occupancy prediction to refine sparse voxels
-            occupancy_masking_threshold = 0.5
-            occupancy_mask = (occupancy_result["occupancy_256"].F > occupancy_masking_threshold).squeeze()
-            print("occupancy_mask: ", occupancy_mask.shape)
-            print("feature_prediction: ", feature_prediction.shape)
-            feature_prediction = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
+            # occupancy_masking_threshold = 0.5
+            # occupancy_mask = (occupancy_result["256/occupancy"].F > occupancy_masking_threshold).squeeze()
+            # print("occupancy_mask: ", occupancy_mask.shape)
+            # print("feature_prediction: ", feature_prediction.shape)
+            # feature_prediction = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
 
         return hierarchy_losses, hierarchy_results, feature_prediction
 
@@ -144,8 +196,8 @@ class MyModel(nn.Module):
 
         # Get sparse GT values from dense tensor
         ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
-        print("prediction.F: ", prediction.F.shape)
-        print("ground_truth_values: ", ground_truth_values.shape)
+        # print("prediction.F: ", prediction.F.shape)
+        # print("ground_truth_values: ", ground_truth_values.shape)
         loss = self.criterion_occupancy(prediction.F, ground_truth_values, reduction="none")
 
 
@@ -156,7 +208,7 @@ class MyModel(nn.Module):
 
         occupancy = Me.MinkowskiSigmoid()(prediction)
 
-        return {"occupancy_256": loss_mean}, {"occupancy_256": occupancy}
+        return {"256/occupancy": loss_mean}, {"256/occupancy": occupancy}
 
     def forward_128(self, predictions, labels ):
         hierarchy_losses = {}
@@ -183,7 +235,7 @@ class MyModel(nn.Module):
         
         # Compute semantic loss
         semantic_prediction: Me.SparseTensor = predictions[1]
-        # print("\nsemantic_prediction: ", semantic_prediction.shape)
+        # print("\nsemantic_prediction_128: ", semantic_prediction.shape)
         if semantic_prediction is not None:
             semantic_ground_truth = labels_128.long()
             semantic_loss, semantic_result = self.compute_semantic_128_loss(semantic_prediction, semantic_ground_truth)
@@ -208,7 +260,7 @@ class MyModel(nn.Module):
         else:
             loss_mean = 0
         occupancy = Me.MinkowskiSigmoid()(prediction)
-        return {"occupancy_128": loss_mean}, {"occupancy_128": occupancy}
+        return {"128/occupancy": loss_mean}, {"128/occupancy": occupancy}
 
     def compute_semantic_128_loss(self, prediction: Me.SparseTensor, ground_truth: torch.Tensor) -> Tuple[Dict, Dict]:
         prediction = mask_invalid_sparse_voxels(prediction, frustum_dim=[128,128,16])
@@ -217,14 +269,16 @@ class MyModel(nn.Module):
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
 
         # Get sparse GT values from dense tensor
-        # print("semantic_ground_truth values: ", ground_truth.shape)
+        # print("semantic_ground_truth values_128: ", ground_truth.shape)
         # ground_truth = OneHot(ground_truth)
         # print("semantic_ground_truth values: ", ground_truth.shape)
 
         ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
-        # print("semantic_ground_truth values: ", ground_truth_values.shape)
+        # print("semantic_ground_truth values_128: ", ground_truth_values.shape)
         # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
-        # print("prediction.F values: ", prediction.F.shape)
+        # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
+
+        # print("prediction.F values_128: ", prediction.F.shape)
         # print("prediction.F values: ", torch.unique(prediction.F))
         loss = self.criterion_semantics(prediction.F, ground_truth_values.squeeze(), reduction="none", ignore_index=255)
 
@@ -240,7 +294,7 @@ class MyModel(nn.Module):
                                           coordinate_map_key=prediction.coordinate_map_key,
                                           coordinate_manager=prediction.coordinate_manager)
         semantic_softmax = None
-        return {"semantic_128": loss_mean}, {"semantic_128": semantic_labels}
+        return {"128/semantic": loss_mean}, {"128/semantic": semantic_labels}
 
 def get_sparse_values(tensor: torch.Tensor, coordinates: torch.Tensor) -> torch.Tensor:
     values = tensor[coordinates[:, 0], :, coordinates[:, 1], coordinates[:, 2], coordinates[:, 3]]
