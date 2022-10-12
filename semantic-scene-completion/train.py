@@ -36,11 +36,14 @@ def main():
                                           weight_decay=config.SOLVER.WEIGHT_DECAY)
 
     training_epoch = 0
-    steps_schedule = 40
-    for epoch in range(training_epoch, training_epoch+100):
+    steps_schedule = [10,20]
+    for epoch in range(training_epoch, training_epoch+200):
         model.train()
-        if epoch>steps_schedule:
-            config.GENERAL.LEVEL = "256"
+        if epoch>steps_schedule[0]:
+            if epoch>steps_schedule[1]:
+                config.GENERAL.LEVEL = "FULL"
+            else:
+                config.GENERAL.LEVEL = "256"
         # with tqdm(total=len(train_data_loader)) as pbar:
         for i, batch in enumerate(train_data_loader):
             optimizer.zero_grad()
@@ -57,9 +60,10 @@ def main():
             losses = model(complet_coords, complet_invalid, complet_labels)
             
             total_loss = losses['128/occupancy'] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["128/semantic"]*config.MODEL.SEMANTIC_128_WEIGHT 
-            if config.GENERAL.LEVEL == "256":
-                total_loss += losses["256/occupancy"]*config.MODEL.OCCUPANCY_256_WEIGHT + losses["256/semantic"]*config.MODEL.SEMANTIC_256_WEIGHT
-            
+            if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                total_loss += losses["256/occupancy"]*config.MODEL.OCCUPANCY_256_WEIGHT 
+            if config.GENERAL.LEVEL == "FULL":
+                total_loss += losses["256/semantic"]*config.MODEL.SEMANTIC_256_WEIGHT
             # Loss backpropagation, optimizer & scheduler step
 
             if torch.is_tensor(total_loss):
@@ -70,6 +74,7 @@ def main():
                     log_msg += "{}: {:.4f}, ".format(k, v)
                 log_msg += "total_loss: {:.4f}".format(total_loss)
                 print(log_msg)
+                
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
 

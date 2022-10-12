@@ -11,19 +11,19 @@ device = torch.device("cuda:0")
 
 
 class MyModel(nn.Module):
-    def __init__(self,num_output_channels=8,unet_features=8,resnet_blocks=1):
+    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
         super().__init__()
-        self.model = UNetSparse(num_output_channels, unet_features).to(device)
+        self.model = UNetSparse(num_output_channels, unet_features)
         
         # Heads
         self.occupancy_256_head = GeometryHeadSparse(num_output_channels, 1, resnet_blocks)
-        self.occupancy_256_head = self.occupancy_256_head.to(device)
+        self.occupancy_256_head = self.occupancy_256_head
 
         # Semantic head
         self.semantic_head = ClassificationHeadSparse(num_output_channels,
                                                         config.SEGMENTATION.NUM_CLASSES,
                                                         resnet_blocks)
-        self.semantic_head = self.semantic_head.to(device)
+        self.semantic_head = self.semantic_head
 
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
@@ -68,13 +68,16 @@ class MyModel(nn.Module):
         if predictions[0] is None:
             return losses
         
+        # Occupancy
         losses_256, results_256, features_256 = self.forward_256(predictions[0], complet_labels)
         losses.update(losses_256)
         results.update(results_256)
 
-        losses_output, results_output = self.forward_output(features_256, complet_labels)
-        losses.update(losses_output)
-        results.update(results_output)
+        # Semantic
+        if config.GENERAL.LEVEL == "FULL":
+            losses_output, results_output = self.forward_output(features_256, complet_labels)
+            losses.update(losses_output)
+            results.update(results_output)
 
         # output_features = predictions[0]
         # print("output_features: ", output_features.shape)
@@ -159,7 +162,10 @@ class MyModel(nn.Module):
 
         feature_prediction: Me.SparseTensor = predictions
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
-
+        # For low memory: TODO(jdgalviss): Is there a memory leak?
+        mask = torch.rand(feature_prediction.F.shape[0]) < 0.5
+        # print("mask values: ", torch.unique(mask))
+        feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
         # print("feature_prediction: ", feature_prediction.shape)
 
 
@@ -180,11 +186,12 @@ class MyModel(nn.Module):
             # hierarchy_results.update(occupancy_result)
 
             # Use occupancy prediction to refine sparse voxels
-            # occupancy_masking_threshold = 0.5
-            # occupancy_mask = (occupancy_result["256/occupancy"].F > occupancy_masking_threshold).squeeze()
+            occupancy_masking_threshold = 0.5
+            occupancy_mask = (occupancy_result["256/occupancy"].F > occupancy_masking_threshold).squeeze()
             # print("occupancy_mask: ", occupancy_mask.shape)
+            # print("occupancy_mask values: ", torch.unique(occupancy_mask))
             # print("feature_prediction: ", feature_prediction.shape)
-            # feature_prediction = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
+            feature_prediction = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
 
         return hierarchy_losses, hierarchy_results, feature_prediction
 

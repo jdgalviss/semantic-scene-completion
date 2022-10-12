@@ -252,7 +252,7 @@ class UNetBlockOuterSparse(UNetBlock):
                 # proxy semantic prediction
                 proxy_semantic = self.proxy_semantic_128_head(cat)
                 cat = sparse_cat_union(cat, proxy_semantic)
-            if  config.GENERAL.LEVEL == "256" and proxy_output is not None:
+            if  config.GENERAL.LEVEL != "128" and proxy_output is not None:
                 output = self.decoder(cat) if not self.verbose else self.forward_verbose(cat, self.decoder)
                 # print("output: ", output.shape)
                 output = Me.SparseTensor(output.F, output.C, coordinate_manager=cm)  # Fix
