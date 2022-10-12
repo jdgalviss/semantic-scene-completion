@@ -11,6 +11,7 @@ _C.GENERAL.TASK = "train"
 _C.GENERAL.MANUAL_SEED = 123
 _C.GENERAL.DATASET_DIR = "/usr/src/app/data/"
 _C.GENERAL.OVERFIT = True
+_C.GENERAL.LEVEL = "128"
 
 
 # -----------------------------------------------------------------------------
@@ -39,3 +40,21 @@ _C.SEGMENTATION = Node()
 _C.SEGMENTATION.SCALE = 10   # VOXEL_SIZE = 1 / SCALE, SCALE 10 (1CM)
 _C.SEGMENTATION.FULL_SCALE = [0, 2048]
 _C.SEGMENTATION.USE_COORDS = False
+_C.SEGMENTATION.NUM_CLASSES = 25
+
+# -----------------------------------------------------------------------------
+# MODEL CONFIGS
+# -----------------------------------------------------------------------------
+_C.MODEL = Node() 
+_C.MODEL.OCCUPANCY_128_WEIGHT = 0.2
+_C.MODEL.SEMANTIC_128_WEIGHT = 0.2   
+
+# -----------------------------------------------------------------------------
+# SOLVER CONFIGS
+# -----------------------------------------------------------------------------
+_C.SOLVER = Node() 
+_C.SOLVER.BASE_LR = 0.001
+_C.SOLVER.BETA_1 = 0.9 
+_C.SOLVER.BETA_2 = 0.999   
+_C.SOLVER.WEIGHT_DECAY = 0.00005  
+

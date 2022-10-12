@@ -7,6 +7,15 @@ from semantic_kitti_dataset import SemanticKITTIDataset, Merge
 import numpy as np
 import time
 from tqdm import tqdm
+from model import MyModel
+import MinkowskiEngine as Me
+from torch.nn import functional as F
+
+
+
+device = torch.device("cuda:0")
+
+
 
 def main():
     train_dataset = SemanticKITTIDataset(config, "train")
@@ -20,33 +29,87 @@ def main():
         drop_last=True,
         worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
+    model = MyModel().to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
+                                          betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
+                                          weight_decay=config.SOLVER.WEIGHT_DECAY)
+
     training_epoch = 0
-    for epoch in range(training_epoch, training_epoch+1):
-        with tqdm(total=len(train_data_loader)) as pbar:
-            for i, batch in enumerate(train_data_loader):
-                print("batch len: ", len(batch))
+    steps_schedule = 10
+    for epoch in range(training_epoch, training_epoch+100):
+        model.train()
+        if epoch>steps_schedule:
+            config.GENERAL.LEVEL = "256"
+        # with tqdm(total=len(train_data_loader)) as pbar:
+        for i, batch in enumerate(train_data_loader):
+            optimizer.zero_grad()
 
-                # labels
-                seg_label = batch[0]['seg_labels']
-                complet_label = batch[1]['complet_labels']
-                invalid_voxels = batch[1]['complet_invalid']
+            # print("batch len: ", len(batch))
 
-                seg_inputs, complet_inputs, _ = batch
-                ## Process seg_inputs with segmentation head
-                print('\n\n---------------------------------------------------')
-                print("seg inputs keys: ", seg_inputs.keys())
-                seg_cords = seg_inputs['seg_coords']
-                seg_features = seg_inputs['seg_features']
-                print("seg_cords: type:{}, shape:{}".format(type(seg_cords), seg_cords.shape))
-                print("seg_features: type:{}, shape:{}".format(type(seg_features), seg_features.shape))
-                print("seg_label: type:{}, shape:{}".format(type(seg_label), seg_label.shape))
+            # Get tensors from batch
+            _, complet_inputs, completion_collection, _ = batch
+            complet_coords = complet_inputs['complet_coords'].to(device)
+            complet_invalid = complet_inputs['complet_invalid'].to(device)
+            complet_labels = complet_inputs['complet_labels'].to(device)
+
+            # Forward pass through model
+            losses = model(complet_coords, complet_invalid, complet_labels)
+            total_loss = losses['occupancy_128'] * config.MODEL.OCCUPANCY_128_WEIGHT + losses['semantic_128']*config.MODEL.SEMANTIC_128_WEIGHT
+            
+            # Loss backpropagation, optimizer & scheduler step
+
+            if torch.is_tensor(total_loss):
+                total_loss.backward()
+                optimizer.step()
+                print("\rstep: {}, loss_occupancy_128: {}, loss_semantic_128: {}, total_loss: {}".format(epoch, losses['occupancy_128'], losses['semantic_128'], total_loss))
+
+            # Minkowski Engine recommendation
+            torch.cuda.empty_cache()
+
+            
+            # Occupancy predictions
+            
+            continue
+            output_features = predictions[0]
+            print("output_features: ", output_features.shape)
+            # occupancy_prediction_128 = predictions[1][0]
+            # print("occupancy_prediction_128: ", occupancy_prediction_128.shape)
+            occupancy_prediction = occupancy_256_head(output_features)
+            print("occupancy_prediction: ",occupancy_prediction.shape)
+            occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
+            predicted_coordinates = occupancy_prediction.C.long()
+            predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // occupancy_prediction.tensor_stride[0]
+            print("occupancy_prediction: ",occupancy_prediction.shape)
+            occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
+            print("occupancy_prediction: ",occupancy_prediction.shape)
+            dense_dimensions = torch.Size([1, 1] + [256, 256, 32])
+            min_coordinates = torch.IntTensor([0, 0, 0]).to(device)
+            occupancy_prediction_dense, _, _ = occupancy_prediction.dense(dense_dimensions, min_coordinates)
+            print("Occupancy prediction dense: ", occupancy_prediction_dense.shape)
+
+            # Use occupancy prediction to refine sparse voxels
+            sparse_threshold_256 = 0.5
+            occupancy_mask = (occupancy_prediction.F > sparse_threshold_256).squeeze()
+            print("occupancy_mask: ", occupancy_mask.shape)
+            print("occupancy_mask values: ",torch.unique(occupancy_mask))
+            output_features = Me.MinkowskiPruning()(output_features, occupancy_mask)
+
+            # Semantic predictions
+            semantic_prediction = semantic_head(output_features)
+            print("semantic_prediction: ", semantic_prediction.shape)
+            print("semantic_prediction values: ", torch.unique(semantic_prediction))
 
 
-                ## Process seg_inputs with completion head
-                print("\ncomplet_inputs keys: ", complet_inputs.keys())
-                complet_coords = complet_inputs['complet_coords']
-                print("complete_coords: type:{}, shape:{}".format(type(complet_coords), complet_coords.shape))
-                print("complete_label: type:{}, shape:{}".format(type(complet_label), complet_label.shape))
+            # print("complet_labels: ",complet_labels.shape)
+
+            
+
+            # shape = torch.Size([1,1,128, 128, 16])
+            # min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+            # occupancy_prediction_128_dense, _, _ = occupancy_prediction_128.dense(shape, min_coordinate=min_coordinate)
+            # print("occupancy_prediction_128_dense: ", occupancy_prediction_128_dense.shape)
+            ## Process seg_inputs with completion head
                 
 
 
