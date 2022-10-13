@@ -10,11 +10,11 @@ from tqdm import tqdm
 from model import MyModel
 import MinkowskiEngine as Me
 from torch.nn import functional as F
-
+from torch.utils.tensorboard import SummaryWriter
+from utils.path_utils import create_new_experiment_folder, save_config
 
 
 device = torch.device("cuda:0")
-
 
 
 def main():
@@ -35,8 +35,13 @@ def main():
                                           betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                           weight_decay=config.SOLVER.WEIGHT_DECAY)
 
+    experiment_dir = create_new_experiment_folder(config.GENERAL.OUT_DIR)
+    save_config(config, experiment_dir)
+    writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
+
     training_epoch = 0
     steps_schedule = [10,20]
+    iteration = 0
     for epoch in range(training_epoch, training_epoch+200):
         model.train()
         if epoch>steps_schedule[0]:
@@ -57,13 +62,13 @@ def main():
             complet_labels = complet_inputs['complet_labels'].to(device)
 
             # Forward pass through model
-            losses = model(complet_coords, complet_invalid, complet_labels)
+            losses, _ = model(complet_coords, complet_invalid, complet_labels)
             
-            total_loss = losses['128/occupancy'] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["128/semantic"]*config.MODEL.SEMANTIC_128_WEIGHT 
+            total_loss = losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
             if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                total_loss += losses["256/occupancy"]*config.MODEL.OCCUPANCY_256_WEIGHT 
+                total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
             if config.GENERAL.LEVEL == "FULL":
-                total_loss += losses["256/semantic"]*config.MODEL.SEMANTIC_256_WEIGHT
+                total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
             # Loss backpropagation, optimizer & scheduler step
 
             if torch.is_tensor(total_loss):
@@ -72,11 +77,21 @@ def main():
                 log_msg = "\r step: {}, ".format(epoch)
                 for k, v in losses.items():
                     log_msg += "{}: {:.4f}, ".format(k, v)
+                    if "256" in k:
+                        writer.add_scalar('train_256/'+k, v.detach().cpu(), iteration)
+                    elif "128" in k:
+                        writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
+
                 log_msg += "total_loss: {:.4f}".format(total_loss)
                 print(log_msg)
+            writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
+            iteration += 1
                 
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
+
+
+    torch.save(model.state_dict(), experiment_dir + "/model.pth")
 
 
 if __name__ == '__main__':
@@ -86,8 +101,8 @@ if __name__ == '__main__':
     parser.add_argument("--output-path", type=str, default="experiments", required=False)
 
     args = parser.parse_args()
-    # config.merge_from_file(args.config_file)
-
-    print("\n Training with configuration parameters: {}\n".format(config))
+    config.GENERAL.OUT_DIR = args.output_path
+    print("\n Training with configuration parameters: \n",config)
+    config.merge_from_file(args.config_file)
 
     main()

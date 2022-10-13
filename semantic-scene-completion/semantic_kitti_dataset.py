@@ -79,7 +79,10 @@ class SemanticKITTIDataset(Dataset):
                 if len(comletion_data) == 0: raise RuntimeError("Missing data for " + EXT_TO_NAME[ext])
                 # Add paths to dictionary
                 if(config.GENERAL.OVERFIT):
-                    comletion_data = [comletion_data[0]]
+                    completion_data_list = []
+                    for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT):
+                        completion_data_list.append(comletion_data[i])
+                    comletion_data = completion_data_list
 
                 self.files[EXT_TO_NAME[ext]].extend(comletion_data)
 
@@ -88,7 +91,10 @@ class SemanticKITTIDataset(Dataset):
             
         
         if(config.GENERAL.OVERFIT):
-            self.filenames = [self.filenames[0]]
+            filenames_list = []
+            for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT):
+                filenames_list.append(self.filenames[i])
+            self.filenames = filenames_list
         
         self.num_files = len(self.filenames)
         remapdict = kitti_config["learning_map"]
