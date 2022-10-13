@@ -51,7 +51,7 @@ def main():
             # print("batch len: ", len(batch))
 
             # Get tensors from batch
-            _, complet_inputs, completion_collection, _ = batch
+            _, complet_inputs, _, _ = batch
             complet_coords = complet_inputs['complet_coords'].to(device)
             complet_invalid = complet_inputs['complet_invalid'].to(device)
             complet_labels = complet_inputs['complet_labels'].to(device)
@@ -77,51 +77,6 @@ def main():
                 
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
-
-            
-            # Occupancy predictions
-            
-            continue
-            output_features = predictions[0]
-            print("output_features: ", output_features.shape)
-            # occupancy_prediction_128 = predictions[1][0]
-            # print("occupancy_prediction_128: ", occupancy_prediction_128.shape)
-            occupancy_prediction = occupancy_256_head(output_features)
-            print("occupancy_prediction: ",occupancy_prediction.shape)
-            occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
-            predicted_coordinates = occupancy_prediction.C.long()
-            predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // occupancy_prediction.tensor_stride[0]
-            print("occupancy_prediction: ",occupancy_prediction.shape)
-            occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
-            print("occupancy_prediction: ",occupancy_prediction.shape)
-            dense_dimensions = torch.Size([1, 1] + [256, 256, 32])
-            min_coordinates = torch.IntTensor([0, 0, 0]).to(device)
-            occupancy_prediction_dense, _, _ = occupancy_prediction.dense(dense_dimensions, min_coordinates)
-            print("Occupancy prediction dense: ", occupancy_prediction_dense.shape)
-
-            # Use occupancy prediction to refine sparse voxels
-            sparse_threshold_256 = 0.5
-            occupancy_mask = (occupancy_prediction.F > sparse_threshold_256).squeeze()
-            print("occupancy_mask: ", occupancy_mask.shape)
-            print("occupancy_mask values: ",torch.unique(occupancy_mask))
-            output_features = Me.MinkowskiPruning()(output_features, occupancy_mask)
-
-            # Semantic predictions
-            semantic_prediction = semantic_head(output_features)
-            print("semantic_prediction: ", semantic_prediction.shape)
-            print("semantic_prediction values: ", torch.unique(semantic_prediction))
-
-
-            # print("complet_labels: ",complet_labels.shape)
-
-            
-
-            # shape = torch.Size([1,1,128, 128, 16])
-            # min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
-            # occupancy_prediction_128_dense, _, _ = occupancy_prediction_128.dense(shape, min_coordinate=min_coordinate)
-            # print("occupancy_prediction_128_dense: ", occupancy_prediction_128_dense.shape)
-            ## Process seg_inputs with completion head
-                
 
 
 if __name__ == '__main__':
