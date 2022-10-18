@@ -11,19 +11,19 @@ device = torch.device("cuda:0")
 
 
 class MyModel(nn.Module):
-    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
+    def __init__(self,num_output_channels=8,unet_features=8,resnet_blocks=1):
         super().__init__()
         self.model = UNetSparse(num_output_channels, unet_features)
         
         # Heads
         self.occupancy_256_head = GeometryHeadSparse(num_output_channels, 1, resnet_blocks)
-        self.occupancy_256_head = self.occupancy_256_head
+        # self.occupancy_256_head = self.occupancy_256_head
 
         # Semantic head
         self.semantic_head = ClassificationHeadSparse(num_output_channels,
                                                         config.SEGMENTATION.NUM_CLASSES,
                                                         resnet_blocks)
-        self.semantic_head = self.semantic_head
+        # self.semantic_head = self.semantic_head
 
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
@@ -42,25 +42,25 @@ class MyModel(nn.Module):
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
         # print("sparse_coords: ",sparse_coords.shape)
         complet_valid = torch.logical_not(complet_invalid)
-        complet_valid_64 = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
         # print("\complet_valid_64: ", complet_valid_64.shape)
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
         # print("complet_valid shape:", complet_valid.shape)
-        one = torch.ones([1], device=device)
-        zero = torch.zeros([1], device=device)
-        occupied_voxels = torch.where( (F.interpolate(complet_labels.unsqueeze(0), size=(64,64,8), mode="nearest"))[0] > 0, one, zero)
+        # one = torch.ones([1], device=device)
+        # zero = torch.zeros([1], device=device)
+        # occupied_voxels = torch.where( (F.interpolate(complet_labels.unsqueeze(0), size=(64,64,8), mode="nearest"))[0] > 0, one, zero)
         # print("occupied_voxels: ", occupied_voxels.shape)
         # print("occupied_voxels values: ", torch.unique(occupied_voxels))
         # print("occupied_voxels: ",torch.sum(occupied_voxels))
         
-        complet_valid_64 = torch.logical_and(complet_valid_64, occupied_voxels)
+        # complet_valid_64 = torch.logical_and(complet_valid_64, occupied_voxels)
         # print("\complet_valid_64: ", complet_valid_64.shape)
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
 
         # Forward pass through model
-        unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid_64)
+        unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid)
         predictions = unet_output.data
         
         # Filter out invalid voxels
@@ -83,7 +83,8 @@ class MyModel(nn.Module):
             return losses, results
         
         # Occupancy
-        losses_256, results_256, features_256 = self.forward_256(predictions[0], complet_labels)
+        occupancy_128 = None #results_128["occupancy_128"]
+        losses_256, results_256, features_256 = self.forward_256(predictions[0], complet_labels, occupancy_128)
         losses.update(losses_256)
         results.update(results_256)
 
@@ -141,18 +142,25 @@ class MyModel(nn.Module):
 
         return {"semantic_256": loss_mean}, {"semantic_256": semantic_labels}
 
-    def forward_256(self, predictions, labels):
+    def forward_256(self, predictions, labels, occupancy_128):
         hierarchy_losses = {}
         hierarchy_results = {}
 
         feature_prediction: Me.SparseTensor = predictions
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
-        # # For low memory: TODO(jdgalviss): Is there a memory leak?
-        # mask = torch.rand(feature_prediction.F.shape[0]) < 0.5
-        # # print("mask values: ", torch.unique(mask))
-        # feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
-        # print("feature_prediction: ", feature_prediction.shape)
+        # For low memory: TODO(jdgalviss): Is there a memory leak?
+        # shape = torch.Size([1, 1, 128, 128, 16])
+        # min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+        # occupancy_128, _, _ = occupancy_128.dense(shape, min_coordinate=min_coordinate)
+        # print("occupancy_128: ", occupancy_128.shape)
+        # occupancy_128 = (F.interpolate(occupancy_128, size=(256,256,32), mode="nearest"))[0]
+        # occupancy_128 = occupancy_128 > 0.5
+        # print("occupancy_128: ", occupancy_128.shape)
 
+        mask = torch.rand(feature_prediction.F.shape[0]) < 0.5
+        # print("mask values: ", torch.unique(mask))
+        feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
+        # print("feature_prediction: ", feature_prediction.shape)
 
         if feature_prediction is not None:
             # occupancy at 256
@@ -221,18 +229,18 @@ class MyModel(nn.Module):
         occupancy_prediction: Me.SparseTensor = predictions[0]
         # print("\noccupancy_prediction: ", occupancy_prediction.shape)
         if occupancy_prediction is not None:
-            occupancy_loss, occupancy_result = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth)
+            occupancy_loss, _ = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth)
             hierarchy_losses.update(occupancy_loss)
-            hierarchy_results.update(occupancy_result)
+            # hierarchy_results.update(occupancy_result)
         
         # Compute semantic loss
         semantic_prediction: Me.SparseTensor = predictions[1]
         # print("\nsemantic_prediction_128: ", semantic_prediction.shape)
         if semantic_prediction is not None:
             semantic_ground_truth = labels_128.long()
-            semantic_loss, semantic_result = self.compute_semantic_128_loss(semantic_prediction, semantic_ground_truth)
+            semantic_loss, _ = self.compute_semantic_128_loss(semantic_prediction, semantic_ground_truth)
             hierarchy_losses.update(semantic_loss)
-            hierarchy_results.update(semantic_result)
+            # hierarchy_results.update(semantic_result)
         
 
         return hierarchy_losses, hierarchy_results
@@ -297,33 +305,37 @@ class MyModel(nn.Module):
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
         complet_valid = torch.logical_not(complet_invalid)
-        complet_valid_64 = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
         print("sparse_coords: ", sparse_coords.shape)
         # Forward pass through model
-        unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid_64)
+        unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid)
         feature_prediction = unet_output.data[0]
         print("feature_prediction: ", feature_prediction.shape)
         
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
         occupancy_prediction = self.occupancy_256_head(feature_prediction)
         occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
-        occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
         predicted_coordinates = occupancy_prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // occupancy_prediction.tensor_stride[0]
+        occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
         occupancy_mask = (occupancy_prediction.F > 0.5).squeeze()
         prediction_pruned = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
+        
         semantic_prediction = self.semantic_head(prediction_pruned)
+        semantic_prediction = mask_invalid_sparse_voxels(semantic_prediction)
         semantic_softmax = Me.MinkowskiSoftmax(dim=1)(semantic_prediction)
         semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
                                           coordinate_map_key=semantic_prediction.coordinate_map_key,
                                           coordinate_manager=semantic_prediction.coordinate_manager)
 
         print("occupancy_prediction: ", occupancy_prediction.shape)
+        print("occupancy_mask: ", occupancy_mask.shape)
+
         print("semantic_prediction: ", semantic_prediction.shape)
         print("semantic_labels: ", semantic_labels.shape)
 
-        results = {"occupancy_prediction": occupancy_prediction, "semantic_prediction": semantic_prediction, "semantic_labels": semantic_labels}
+        results = {"occupancy_256": occupancy_prediction, "semantic_256": semantic_labels}
         return results
 
 def get_sparse_values(tensor: torch.Tensor, coordinates: torch.Tensor) -> torch.Tensor:

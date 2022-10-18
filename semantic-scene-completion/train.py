@@ -40,7 +40,7 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [10,20]
+    steps_schedule = [10,50]
     iteration = 0
     for epoch in range(training_epoch, training_epoch+200):
         model.train()
@@ -74,7 +74,7 @@ def main():
             if torch.is_tensor(total_loss):
                 total_loss.backward()
                 optimizer.step()
-                log_msg = "\r step: {}, ".format(epoch)
+                log_msg = "\r step: {}/{}, ".format(epoch, i)
                 for k, v in losses.items():
                     log_msg += "{}: {:.4f}, ".format(k, v)
                     if "256" in k:
