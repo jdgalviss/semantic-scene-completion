@@ -43,6 +43,12 @@ class MyModel(nn.Module):
         # print("sparse_coords: ",sparse_coords.shape)
         complet_valid = torch.logical_not(complet_invalid)
         complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        # print("si", torch.sum(complet_valid))
+        # complet_valid = torch.ones_like(complet_valid)
+        # complet_valid = torch.rand_like(complet_valid,dtype=torch.float) > 0.7
+        # print(torch.sum(complet_valid))
+        # print(complet_valid.dtype)
+
         # print("\complet_valid_64: ", complet_valid_64.shape)
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
@@ -139,7 +145,7 @@ class MyModel(nn.Module):
         semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
                                           coordinate_map_key=prediction.coordinate_map_key,
                                           coordinate_manager=prediction.coordinate_manager)
-
+        print("semantic_prediction: ", semantic_labels.shape)
         return {"semantic_256": loss_mean}, {"semantic_256": semantic_labels}
 
     def forward_256(self, predictions, labels, occupancy_128):
@@ -160,7 +166,7 @@ class MyModel(nn.Module):
         mask = torch.rand(feature_prediction.F.shape[0]) < 0.5
         # print("mask values: ", torch.unique(mask))
         feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
-        # print("feature_prediction: ", feature_prediction.shape)
+        print("feature_prediction: ", feature_prediction.shape)
 
         if feature_prediction is not None:
             # occupancy at 256
@@ -181,7 +187,7 @@ class MyModel(nn.Module):
             # Use occupancy prediction to refine sparse voxels
             occupancy_masking_threshold = 0.5
             occupancy_mask = (occupancy_result["occupancy_256"].F > occupancy_masking_threshold).squeeze()
-            # print("occupancy_mask: ", occupancy_mask.shape)
+            print("occupancy_mask: ", occupancy_mask.shape)
             # print("occupancy_mask values: ", torch.unique(occupancy_mask))
             # print("feature_prediction: ", feature_prediction.shape)
             feature_prediction = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)

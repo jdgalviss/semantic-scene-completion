@@ -40,12 +40,12 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [10,50]
+    steps_schedule = [1,100]
     iteration = 0
-    for epoch in range(training_epoch, training_epoch+200):
+    for epoch in range(training_epoch, training_epoch+300):
         model.train()
-        if epoch>steps_schedule[0]:
-            if epoch>steps_schedule[1]:
+        if epoch>=steps_schedule[0]:
+            if epoch>=steps_schedule[1]:
                 config.GENERAL.LEVEL = "FULL"
             else:
                 config.GENERAL.LEVEL = "256"

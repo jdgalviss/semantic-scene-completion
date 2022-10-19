@@ -80,7 +80,10 @@ class SemanticKITTIDataset(Dataset):
                 # Add paths to dictionary
                 if(config.GENERAL.OVERFIT):
                     completion_data_list = []
-                    for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT):
+                    # Choose the samples to overfit
+                    step = math.floor(len(comletion_data)/config.GENERAL.NUM_SAMPLES_OVERFIT)
+                    idxs = [i*step for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT)]
+                    for i in idxs:
                         completion_data_list.append(comletion_data[i])
                     comletion_data = completion_data_list
 
@@ -92,7 +95,9 @@ class SemanticKITTIDataset(Dataset):
         
         if(config.GENERAL.OVERFIT):
             filenames_list = []
-            for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT):
+            step = math.floor(len(self.filenames )/config.GENERAL.NUM_SAMPLES_OVERFIT)
+            idxs = [i*step for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT)]
+            for i in idxs:
                 filenames_list.append(self.filenames[i])
             self.filenames = filenames_list
         
