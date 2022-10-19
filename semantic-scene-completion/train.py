@@ -40,7 +40,7 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [10,50]
+    steps_schedule = [25,50]
     iteration = 0
     for epoch in range(training_epoch, training_epoch+200):
         model.train()
@@ -57,12 +57,19 @@ def main():
 
             # Get tensors from batch
             _, complet_inputs, _, _ = batch
-            complet_coords = complet_inputs['complet_coords'].to(device)
-            complet_invalid = complet_inputs['complet_invalid'].to(device)
-            complet_labels = complet_inputs['complet_labels'].to(device)
+            # complet_coords = complet_inputs['complet_coords'].to(device)
+            # complet_invalid = complet_inputs['complet_invalid'].to(device)
+            # complet_labels = complet_inputs['complet_labels'].to(device)
+
+            # Convert Inputs to Sparse Tensors
 
             # Forward pass through model
-            losses, _ = model(complet_coords, complet_invalid, complet_labels)
+            # try:
+            losses, _ = model(complet_inputs)
+            # except Exception as e:
+            #     print(e, "skipping: ", iteration)
+            #     del batch
+            #     continue
             
             total_loss = losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
             if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
