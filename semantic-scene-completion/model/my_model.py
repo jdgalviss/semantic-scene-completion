@@ -49,7 +49,7 @@ class MyModel(nn.Module):
         complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
         # complet_valid = torch.ones_like(complet_valid).bool()
         # complet_valid = torch.ones(1,64,64,8).to(device)
-        complet_valid = torch.rand_like(complet_valid, dtype=torch.bool)
+        # complet_valid = torch.rand_like(complet_valid, dtype=torch.bool)
 
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
@@ -128,14 +128,14 @@ class MyModel(nn.Module):
         # print("prediction.F values: ", torch.unique(prediction.F))
 
 
-        loss_mean = self.criterion_semantics(prediction.F, ground_truth.squeeze(), reduction="mean", ignore_index=255)
+        loss = self.criterion_semantics(prediction.F, ground_truth.squeeze(), reduction="mean", ignore_index=255)
 
         # Get sparse weighting values from dense tensor
 
-        # if len(loss) > 0:
-        #     loss_mean = loss.mean()
-        # else:
-        #     loss_mean = 0
+        if len(loss) > 0:
+            loss_mean = loss.mean()
+        else:
+            loss_mean = 0
 
         prediction = Me.MinkowskiSoftmax(dim=1)(prediction)
         prediction = Me.SparseTensor(torch.argmax(prediction.F, 1).unsqueeze(1),
@@ -199,13 +199,13 @@ class MyModel(nn.Module):
         ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
         # print("prediction.F: ", prediction.F.shape)
         # print("ground_truth_values: ", ground_truth_values.shape)
-        loss_mean = self.criterion_occupancy(prediction.F, ground_truth, reduction="mean")
+        loss = self.criterion_occupancy(prediction.F, ground_truth, reduction="mean")
 
 
-        # if len(loss) > 0:
-        #     loss_mean = loss.mean()
-        # else:
-        #     loss_mean = 0
+        if len(loss) > 0:
+            loss_mean = loss.mean()
+        else:
+            loss_mean = 0
 
         prediction = Me.MinkowskiSigmoid()(prediction)
 
@@ -245,11 +245,11 @@ class MyModel(nn.Module):
         # print("occupancy_ground_truth values: ", ground_truth.shape)
         ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
         # print("occupancy_ground_truth values: ", ground_truth_values.shape)
-        loss_mean = self.criterion_occupancy(prediction.F, ground_truth_values, reduction="mean")
-        # if len(loss) > 0:
-        #     loss_mean = loss.mean()
-        # else:
-        #     loss_mean = 0
+        loss = self.criterion_occupancy(prediction.F, ground_truth_values, reduction="mean")
+        if len(loss) > 0:
+            loss_mean = loss.mean()
+        else:
+            loss_mean = 0
         prediction = Me.MinkowskiSigmoid()(prediction)
         return {"occupancy_128": loss_mean}, {"occupancy_128": prediction}
 
@@ -271,12 +271,12 @@ class MyModel(nn.Module):
 
         # print("prediction.F values_128: ", prediction.F.shape)
         # print("prediction.F values: ", torch.unique(prediction.F))
-        loss_mean = self.criterion_semantics(prediction.F, ground_truth.squeeze(), reduction="mean", ignore_index=255)
+        loss = self.criterion_semantics(prediction.F, ground_truth.squeeze(), reduction="mean", ignore_index=255)
 
-        # if len(loss) > 0:
-        #     loss_mean = loss.mean()
-        # else:
-        #     loss_mean = 0
+        if len(loss) > 0:
+            loss_mean = loss.mean()
+        else:
+            loss_mean = 0
 
         prediction = Me.MinkowskiSoftmax(dim=1)(prediction)
         # print(semantic_softmax.shape)
