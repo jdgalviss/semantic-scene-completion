@@ -12,12 +12,15 @@ import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from utils.path_utils import create_new_experiment_folder, save_config
+from utils import re_seed
+from structures import collect
 
 
 device = torch.device("cuda:0")
 
 
 def main():
+    re_seed(123)
     train_dataset = SemanticKITTIDataset(config, "train")
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -40,9 +43,9 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [1,100]
+    steps_schedule = [10,20]
     iteration = 0
-    for epoch in range(training_epoch, training_epoch+300):
+    for epoch in range(training_epoch, training_epoch+100):
         model.train()
         if epoch>=steps_schedule[0]:
             if epoch>=steps_schedule[1]:
@@ -57,9 +60,12 @@ def main():
 
             # Get tensors from batch
             _, complet_inputs, _, _ = batch
-            complet_coords = complet_inputs['complet_coords'].to(device)
-            complet_invalid = complet_inputs['complet_invalid'].to(device)
-            complet_labels = complet_inputs['complet_labels'].to(device)
+            # complet_coords = complet_inputs['complet_coords'].to(device)
+            # complet_invalid = complet_inputs['complet_invalid'].to(device)
+            # complet_labels = complet_inputs['complet_labels'].to(device)
+            complet_coords = collect(complet_inputs, "complet_coords").squeeze()
+            complet_labels = collect(complet_inputs, "complet_labels")
+            complet_invalid = collect(complet_inputs, "complet_invalid")
 
             # Forward pass through model
             losses, _ = model(complet_coords, complet_invalid, complet_labels)
@@ -106,3 +112,4 @@ if __name__ == '__main__':
     config.merge_from_file(args.config_file)
 
     main()
+

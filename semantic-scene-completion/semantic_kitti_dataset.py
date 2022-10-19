@@ -12,6 +12,8 @@ from torch.utils.data import Dataset
 import torch
 import math
 from spconv.pytorch.utils import PointToVoxel
+from structures import FieldList
+from torch.nn import functional as F
 
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
@@ -325,13 +327,35 @@ def Merge(tbl):
                   'seg_features': torch.cat(seg_features, 0)
                   }
 
-    complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
-                      'complet_input': torch.cat(input_vx, 0),
-                      'voxel_centers': torch.cat(voxel_centers, 0),
-                      'complet_invalid': torch.cat(complet_invalid, 0),
-                      'complet_labels': torch.cat(complet_labels, 0),
-                      'state': stats,
-                      'complet_invoxel_features': torch.cat(complet_invoxel_features, 0)
-                      }
+    # complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
+    #                   'complet_input': torch.cat(input_vx, 0),
+    #                   'voxel_centers': torch.cat(voxel_centers, 0),
+    #                   'complet_invalid': torch.cat(complet_invalid, 0),
+    #                   'complet_labels': torch.cat(complet_labels, 0),
+    #                   'state': stats,
+    #                   'complet_invoxel_features': torch.cat(complet_invoxel_features, 0)
+    #                   }
+    one = torch.ones([1])
+    zero = torch.zeros([1])
+
+    complet_labels = torch.cat(complet_labels, 0)
+    complet_invalid = torch.cat(complet_invalid, 0) 
+    complet_coords = torch.cat(complet_coords, 0)
+
+    # invalid_locs = torch.nonzero(complet_invalid[0])
+    # complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
+    # complet_occupancy = torch.where(complet_labels > 0, one, zero)
+
+    # complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
+    # complet_occupancy_128 = torch.where(complet_labels_128 > 0, one, zero)
+    complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
+    complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
+    # complet_inputs.add_field("complet_input", torch.cat(input_vx, 0))
+    # complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
+    complet_inputs.add_field("complet_invalid", complet_invalid)
+    complet_inputs.add_field("complet_labels", complet_labels)
+    # complet_inputs.add_field("complet_occupancy", complet_occupancy)
+    # complet_inputs.add_field("complet_labels_128", complet_labels_128)
+    # complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
 
     return seg_inputs, complet_inputs, completion_collection, filenames
