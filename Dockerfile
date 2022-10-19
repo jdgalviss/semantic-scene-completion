@@ -1,4 +1,6 @@
+# FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
 FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
+
 
 # # updating the CUDA Linux GPG Repository Key
 COPY cuda-keyring_1.0-1_all.deb .
@@ -32,10 +34,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir torch==1.10.0+cu113 torchvision==0.11.0+cu113 torchaudio==0.10.0 -f https://download.pytorch.org/whl/torch_stable.html
+# RUN pip install torch==1.12.0+cu113 torchvision==0.13.0+cu113 torchaudio==0.12.0 --extra-index-url https://download.pytorch.org/whl/cu113
+# RUN pip install torch==1.8.1+cu111 torchvision==0.9.1+cu111 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
+
 
 # ## Install MinkowskiEngine
 ENV MAX_JOBS=4
 RUN /bin/bash -c "git clone https://github.com/xheon/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
+# RUN /bin/bash -c "git clone https://github.com/NVIDIA/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
+
 
 # SemanticKITTI API
 WORKDIR /usr/src/app
