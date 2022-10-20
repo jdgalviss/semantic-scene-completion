@@ -12,12 +12,13 @@ import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from utils.path_utils import create_new_experiment_folder, save_config
-
+from utils import re_seed
 
 device = torch.device("cuda:0")
 
 
 def main():
+    re_seed(123)
     train_dataset = SemanticKITTIDataset(config, "train")
     train_data_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -40,7 +41,7 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [1,100]
+    steps_schedule = [1,150]
     iteration = 0
     for epoch in range(training_epoch, training_epoch+300):
         model.train()
