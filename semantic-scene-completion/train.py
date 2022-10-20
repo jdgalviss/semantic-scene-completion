@@ -21,8 +21,10 @@ device = torch.device("cuda:0")
 
 def main():
     re_seed(123)
-    train_dataset = SemanticKITTIDataset(config, "train")
-    train_data_loader = torch.utils.data.DataLoader(
+    train_dataset = SemanticKITTIDataset(config, "train",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT)
+    # val_dataset = SemanticKITTIDataset(config, "train",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT)
+
+    train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=config.TRAIN.BATCH_SIZE,
         collate_fn=Merge,
@@ -30,9 +32,21 @@ def main():
         pin_memory=True,
         shuffle=True,
         drop_last=True,
-        worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
+        # worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
-    model = MyModel().to(device)
+
+    # val_dataloader = torch.utils.data.DataLoader(
+    #     val_dataset,
+    #     batch_size=config.TRAIN.BATCH_SIZE,
+    #     collate_fn=Merge,
+    #     num_workers=config.TRAIN.NUM_WORKERS,
+    #     pin_memory=True,
+    #     shuffle=True,
+    #     drop_last=True,
+    #     # worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
+    # )
+
+    model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
                                           betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
@@ -43,8 +57,8 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [1,50]
-    iteration = 0
+    steps_schedule = config.TRAIN.STEPS
+    iteration = 1
     for epoch in range(training_epoch, training_epoch+400):
         model.train()
         if epoch>=steps_schedule[0]:
@@ -52,8 +66,8 @@ def main():
                 config.GENERAL.LEVEL = "FULL"
             else:
                 config.GENERAL.LEVEL = "256"
-        # with tqdm(total=len(train_data_loader)) as pbar:
-        for i, batch in enumerate(train_data_loader):
+        # with tqdm(total=len(train_dataloader)) as pbar:
+        for i, batch in enumerate(train_dataloader):
             optimizer.zero_grad()
 
             # print("batch len: ", len(batch))
@@ -68,8 +82,15 @@ def main():
             # complet_invalid = collect(complet_inputs, "complet_invalid")
 
             # Forward pass through model
-            losses, _ = model(complet_inputs)
-            
+            try:
+                losses, _ = model(complet_inputs)
+            except Exception as e:
+                print(e, "Error in forward pass: ", iteration)
+                del complet_inputs
+                torch.cuda.empty_cache()
+
+                continue
+            total_loss: torch.Tensor = 0.0
             total_loss = losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
             if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
                 total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
@@ -96,8 +117,18 @@ def main():
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
 
+        # Save checkpoint
+        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0:
+            torch.save(model.state_dict(), experiment_dir + "/model-{}.pth".format(iteration))
+
+        # ============== Evaluation ==============
+        if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL == "FULL":
+            model.eval()
+            print("Evaluating on {} samples".format(len(train_dataloader)))
+
 
     torch.save(model.state_dict(), experiment_dir + "/model.pth")
+
 
 
 if __name__ == '__main__':

@@ -51,7 +51,7 @@ def unpack(compressed):
     return uncompressed
 
 class SemanticKITTIDataset(Dataset):
-    def __init__(self, config, split="train", augment=False):
+    def __init__(self, config, split="train", augment=False, do_overfit=False, num_samples_overfit=1):
         """ Load data from given dataset directory. """
         self.config = config
         self.augment = augment
@@ -80,11 +80,11 @@ class SemanticKITTIDataset(Dataset):
                 comletion_data = sorted([os.path.join(complete_path, f) for f in files if f.endswith(ext)])
                 if len(comletion_data) == 0: raise RuntimeError("Missing data for " + EXT_TO_NAME[ext])
                 # Add paths to dictionary
-                if(config.GENERAL.OVERFIT):
+                if(do_overfit):
                     completion_data_list = []
                     # Choose the samples to overfit
-                    step = math.floor(len(comletion_data)/config.GENERAL.NUM_SAMPLES_OVERFIT)
-                    idxs = [i*step for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT)]
+                    step = math.floor(len(comletion_data)/num_samples_overfit)
+                    idxs = [i*step for i in range(num_samples_overfit)]
                     for i in idxs:
                         completion_data_list.append(comletion_data[i])
                     comletion_data = completion_data_list
@@ -95,10 +95,10 @@ class SemanticKITTIDataset(Dataset):
                 sorted([(sequence, os.path.splitext(f)[0]) for f in files if f.endswith(SPLIT_FILES[split][0])]))
             
         
-        if(config.GENERAL.OVERFIT):
+        if(do_overfit):
             filenames_list = []
-            step = math.floor(len(self.filenames )/config.GENERAL.NUM_SAMPLES_OVERFIT)
-            idxs = [i*step for i in range(config.GENERAL.NUM_SAMPLES_OVERFIT)]
+            step = math.floor(len(self.filenames )/num_samples_overfit)
+            idxs = [i*step for i in range(num_samples_overfit)]
             for i in idxs:
                 filenames_list.append(self.filenames[i])
             self.filenames = filenames_list
@@ -369,4 +369,8 @@ def Merge(tbl):
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
 
+    del seg_inputs, completion_collection, filenames
+    seg_inputs = None
+    completion_collection = None
+    filenames = None
     return seg_inputs, complet_inputs, completion_collection, filenames

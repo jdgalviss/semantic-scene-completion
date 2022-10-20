@@ -48,10 +48,11 @@ class MyModel(nn.Module):
         # complet_valid = torch.logical_not(complet_invalid)
         # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
         # complet_valid = torch.ones_like(complet_valid).bool()
-        complet_valid = torch.ones(1,64,64,8).to(device).bool()
+        complet_valid = (torch.rand((1,64,64,8), dtype=torch.float) < 0.7).to(device).bool()
         # complet_valid = torch.rand_like(complet_valid, dtype=torch.float) > 0.5
         # print("completion_valid values: ", torch.max(complet_valid))
         # print("completion_valid values: ", torch.min(complet_valid))
+        # complet_valid = torch.rand(1,64,64,8).to(device).bool()
 
 
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
@@ -162,7 +163,7 @@ class MyModel(nn.Module):
         # occupancy_128 = occupancy_128 > 0.5
         # print("occupancy_128: ", occupancy_128.shape)
 
-        mask = torch.rand(feature_prediction.F.shape[0]) < 0.45 #190000.0 / feature_prediction.F.shape[0]
+        mask = torch.rand(feature_prediction.F.shape[0]) < 0.5 #190000.0 / feature_prediction.F.shape[0]
         # # # print("mask values: ", torch.unique(mask))
         feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
         print("feature_prediction: ", feature_prediction.shape)
@@ -199,7 +200,7 @@ class MyModel(nn.Module):
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
 
         # Get sparse GT values from dense tensor
-        print("ground_truth: ", torch.sum(ground_truth))
+        # print("ground_truth: ", torch.sum(ground_truth))
         ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
         # print("prediction.F: ", prediction.F.shape)
         # print("ground_truth_values: ", ground_truth_values.shape)
