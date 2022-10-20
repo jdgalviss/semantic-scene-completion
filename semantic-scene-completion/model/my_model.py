@@ -13,7 +13,7 @@ device = torch.device("cuda:0")
 
 
 class MyModel(nn.Module):
-    def __init__(self,num_output_channels=8,unet_features=8,resnet_blocks=1):
+    def __init__(self,num_output_channels=8,unet_features=4,resnet_blocks=1):
         super().__init__()
         self.model = UNetSparse(num_output_channels, unet_features)
         
@@ -44,12 +44,15 @@ class MyModel(nn.Module):
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
         # print("sparse_coords: ",sparse_coords.shape)
-        complet_invalid = collect(targets,"complet_invalid")
-        complet_valid = torch.logical_not(complet_invalid)
-        complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        # complet_invalid = collect(targets,"complet_invalid")
+        # complet_valid = torch.logical_not(complet_invalid)
+        # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
         # complet_valid = torch.ones_like(complet_valid).bool()
-        # complet_valid = torch.ones(1,64,64,8).to(device)
-        # complet_valid = torch.rand_like(complet_valid, dtype=torch.bool)
+        complet_valid = torch.ones(1,64,64,8).to(device).bool()
+        # complet_valid = torch.rand_like(complet_valid, dtype=torch.float) > 0.5
+        # print("completion_valid values: ", torch.max(complet_valid))
+        # print("completion_valid values: ", torch.min(complet_valid))
+
 
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
@@ -159,7 +162,7 @@ class MyModel(nn.Module):
         # occupancy_128 = occupancy_128 > 0.5
         # print("occupancy_128: ", occupancy_128.shape)
 
-        mask = torch.rand(feature_prediction.F.shape[0]) < 0.5 #190000.0 / feature_prediction.F.shape[0]
+        mask = torch.rand(feature_prediction.F.shape[0]) < 0.45 #190000.0 / feature_prediction.F.shape[0]
         # # # print("mask values: ", torch.unique(mask))
         feature_prediction = Me.MinkowskiPruning()(feature_prediction, mask.to(device))
         print("feature_prediction: ", feature_prediction.shape)
@@ -180,7 +183,7 @@ class MyModel(nn.Module):
             # hierarchy_results.update(occupancy_result)
 
             # Use occupancy prediction to refine sparse voxels
-            occupancy_masking_threshold = 0.6
+            occupancy_masking_threshold = 0.5
             occupancy_mask = (occupancy_result["occupancy_256"].F > occupancy_masking_threshold).squeeze()
             # print("occupancy_mask: ", occupancy_mask.shape)
             # print("occupancy_mask values: ", torch.unique(occupancy_mask))
@@ -209,7 +212,7 @@ class MyModel(nn.Module):
         #     loss_mean = 0
 
         prediction = Me.MinkowskiSigmoid()(prediction)
-        print("occupancy_prediction: ", prediction.shape)
+        # print("occupancy_prediction: ", prediction.shape)
         return {"occupancy_256": loss_mean}, {"occupancy_256": prediction}
 
     def forward_128(self, predictions, targets ):
@@ -296,11 +299,11 @@ class MyModel(nn.Module):
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
         complet_valid = torch.logical_not(complet_invalid)
         complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
-        print("sparse_coords: ", sparse_coords.shape)
+        # print("sparse_coords: ", sparse_coords.shape)
         # Forward pass through model
         unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid)
         feature_prediction = unet_output.data[0]
-        print("feature_prediction: ", feature_prediction.shape)
+        # print("feature_prediction: ", feature_prediction.shape)
         
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
         occupancy_prediction = self.occupancy_256_head(feature_prediction)
@@ -319,11 +322,11 @@ class MyModel(nn.Module):
                                           coordinate_map_key=semantic_prediction.coordinate_map_key,
                                           coordinate_manager=semantic_prediction.coordinate_manager)
 
-        print("occupancy_prediction: ", occupancy_prediction.shape)
-        print("occupancy_mask: ", occupancy_mask.shape)
+        # print("occupancy_prediction: ", occupancy_prediction.shape)
+        # print("occupancy_mask: ", occupancy_mask.shape)
 
-        print("semantic_prediction: ", semantic_prediction.shape)
-        print("semantic_labels: ", semantic_labels.shape)
+        # print("semantic_prediction: ", semantic_prediction.shape)
+        # print("semantic_labels: ", semantic_labels.shape)
 
         results = {"occupancy_256": occupancy_prediction, "semantic_256": semantic_labels}
         return results

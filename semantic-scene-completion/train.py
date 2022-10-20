@@ -43,7 +43,7 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [1,150]
+    steps_schedule = [1,50]
     iteration = 0
     for epoch in range(training_epoch, training_epoch+400):
         model.train()
