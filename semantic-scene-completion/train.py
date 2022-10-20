@@ -43,9 +43,9 @@ def main():
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
     training_epoch = 0
-    steps_schedule = [10,20]
+    steps_schedule = [1,150]
     iteration = 0
-    for epoch in range(training_epoch, training_epoch+100):
+    for epoch in range(training_epoch, training_epoch+400):
         model.train()
         if epoch>=steps_schedule[0]:
             if epoch>=steps_schedule[1]:
@@ -63,12 +63,12 @@ def main():
             # complet_coords = complet_inputs['complet_coords'].to(device)
             # complet_invalid = complet_inputs['complet_invalid'].to(device)
             # complet_labels = complet_inputs['complet_labels'].to(device)
-            complet_coords = collect(complet_inputs, "complet_coords").squeeze()
-            complet_labels = collect(complet_inputs, "complet_labels")
-            complet_invalid = collect(complet_inputs, "complet_invalid")
+            # complet_coords = collect(complet_inputs, "complet_coords").squeeze()
+            # complet_labels = collect(complet_inputs, "complet_labels")
+            # complet_invalid = collect(complet_inputs, "complet_invalid")
 
             # Forward pass through model
-            losses, _ = model(complet_coords, complet_invalid, complet_labels)
+            losses, _ = model(complet_inputs)
             
             total_loss = losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
             if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
