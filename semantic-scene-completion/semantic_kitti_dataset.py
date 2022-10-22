@@ -65,7 +65,7 @@ class SemanticKITTIDataset(Dataset):
                                4: 'other-vehicle', 5: 'person', 6: 'bicyclist', 7: 'motorcyclist',
                                8: 'road', 9: 'parking', 10: 'sidewalk', 11: 'other-ground', 12: 'building',
                                13: 'fence', 14: 'vegetation', 15: 'trunk', 16: 'terrain', 17: 'pole',
-                               18: 'traffic-sign'}
+                               18: 'traffic-sign', 19: 'other-object', 20: 'other-object'}
         # Iterate over all sequences present in split
         for sequence in SPLIT_SEQUENCES[split]:
             # Form path to voxels in split
@@ -351,6 +351,10 @@ def Merge(tbl):
     # complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
 
     complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero)
+    # print("complet_occupancy", complet_occupancy.shape)
+    # print("complet_occupancy", torch.sum(complet_occupancy))
+    # print("complet_occupancy", torch.unique(complet_occupancy))
+
 
     complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
     complet_occupancy_128 = torch.where(complet_labels_128 > 0, one, zero)
@@ -369,8 +373,8 @@ def Merge(tbl):
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
 
-    del seg_inputs, completion_collection, filenames
-    seg_inputs = None
-    completion_collection = None
-    filenames = None
+    # del seg_inputs, completion_collection, filenames
+    # seg_inputs = None
+    # completion_collection = None
+    # filenames = None
     return seg_inputs, complet_inputs, completion_collection, filenames

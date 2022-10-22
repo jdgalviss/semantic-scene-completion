@@ -198,7 +198,7 @@ class UNetBlockOuterSparse(UNetBlock):
         input_features = x.data
         # print("input_features shape:", input_features.shape)
         cm = input_features.coordinate_manager
-        key = input_features.coordinate_map_key
+        # key = input_features.coordinate_map_key
 
         # process each input feature type individually
         # concat all processed features and process with another encoder
@@ -244,7 +244,7 @@ class UNetBlockOuterSparse(UNetBlock):
                 sparse_pruned = Me.MinkowskiPruning()(sparse, proxy_mask)  # mask out invalid voxels
                 # print("sparse_pruned: ", sparse_pruned.shape)
                 if len(sparse_pruned.C) == 0:
-                    return BlockContent([None, [proxy_output], dense], processed.encoding)
+                    return BlockContent([None, [proxy_output, None], dense], processed.encoding)
 
                 # Skip connection
                 cat = sparse_cat_union(encoded, sparse_pruned)
@@ -366,7 +366,7 @@ class UNetBlockHybridSparse(UNetBlockOuter):
         # encode
         content = x.data
         encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
-        coords = encoded.C
+        # coords = encoded.C
         # print("\nHybrid sparse block: ")
         # print("content: ", content.shape)
         # print("encoded: ", encoded.shape)
