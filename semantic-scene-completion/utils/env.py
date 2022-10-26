@@ -1,3 +1,4 @@
+
 def re_seed(seed: int = 0) -> None:
     import random
     random.seed(seed)
