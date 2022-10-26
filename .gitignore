@@ -3,3 +3,4 @@ JS3C-Net
 *.pyc
 experiments
 kaolin
+*bkup.py

@@ -38,9 +38,10 @@ class MyModel(nn.Module):
         complet_coords = collect(targets, "complet_coords").squeeze()
         complet_coords = complet_coords[:, [0, 3, 2, 1]]
         complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        complet_features = collect(targets, "complet_features")
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
-        complet_coords = Me.SparseTensor(features=(complet_coords[:,0]+1.0).unsqueeze(0).transpose(0,1).type(torch.FloatTensor).to(device),
+        complet_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
         # print("sparse_coords: ",sparse_coords.shape)
@@ -53,7 +54,7 @@ class MyModel(nn.Module):
         # print("completion_valid values: ", torch.max(complet_valid))
         # print("completion_valid values: ", torch.min(complet_valid))
         # complet_valid = torch.ones(1,64,64,8).to(device).bool()
-
+        # return {}, {}
 
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
@@ -293,14 +294,19 @@ class MyModel(nn.Module):
 
     def inference(self, inputs):
         # Put coordinates in the right order
-        complet_coords = collect(inputs,'complet_coords').squeeze()
-        complet_invalid = collect(inputs,'complet_invalid')
+        complet_coords = collect(inputs,"complet_coords").squeeze()
+        complet_invalid = collect(inputs,"complet_invalid")
         complet_coords = complet_coords[:, [0, 3, 2, 1]]
         complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        complet_features = collect(inputs, "complet_features")
+        # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
-        sparse_coords = Me.SparseTensor(features=(complet_coords[:,0]+1.0).unsqueeze(0).transpose(0,1).type(torch.FloatTensor).to(device),
+        sparse_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
+        # print("sparse_coords: ",sparse_coords.shape)
+        # Transform to sparse tensor
+        
         # print("sparse_coords: ", sparse_coords.shape)
         # Forward pass through model
         # complet_valid = torch.logical_not(complet_invalid)

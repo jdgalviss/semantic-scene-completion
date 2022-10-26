@@ -142,7 +142,7 @@ class SemanticKITTIDataset(Dataset):
         self.voxel_generator = PointToVoxel(
             vsize_xyz=[config.COMPLETION.VOXEL_SIZE]*3,
             coors_range_xyz=config.COMPLETION.POINT_CLOUD_RANGE,
-            num_point_features=4, # or 3??
+            num_point_features=5, # or 3??
             max_num_points_per_voxel=20,
             max_num_voxels=256 * 256 * 32
         )
@@ -201,8 +201,10 @@ class SemanticKITTIDataset(Dataset):
         '''Generate Alignment Data'''
         aliment_collection = {}
         xyz = xyz[idxs]
-        pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1)],-1))
+        pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1))
+
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
+
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
         # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
@@ -213,7 +215,6 @@ class SemanticKITTIDataset(Dataset):
             'voxel_centers': voxel_centers,
             'num_points_per_voxel': num_points_per_voxel,
         })
-
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
     def process_seg_data(self, xyz, label, feature):
@@ -318,14 +319,15 @@ def Merge(tbl):
 
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
         complet_invoxel_feature = aliment_collection['voxels']
-        complet_invoxel_feature[:, :, -1] += offset  # voxel-to-point mapping in the last column
+        complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
         offset += seg_coord.shape[0]
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
-
-    seg_inputs = {'seg_coords': torch.cat(seg_coords, 0),
-                  'seg_labels': torch.cat(seg_labels, 0),
-                  'seg_features': torch.cat(seg_features, 0)
-                  }
+    complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
+    complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
+    # seg_inputs = {'seg_coords': torch.cat(seg_coords, 0),
+    #               'seg_labels': torch.cat(seg_labels, 0),
+    #               'seg_features': torch.cat(seg_features, 0)
+    #               }
 
     # complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
     #                   'complet_input': torch.cat(input_vx, 0),
@@ -337,44 +339,33 @@ def Merge(tbl):
     #                   }
     one = torch.ones([1])
     zero = torch.zeros([1])
-
     complet_labels = torch.cat(complet_labels, 0)
     complet_invalid = torch.cat(complet_invalid, 0) 
     complet_coords = torch.cat(complet_coords, 0)
-
     invalid_locs = torch.nonzero(complet_invalid[0])
-    # print("invalid_locs", invalid_locs.shape)
     complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
     invalid_locs = torch.where(complet_labels > 255)
-    # print("invalid_locs", invalid_locs)
     complet_labels[invalid_locs] = 255
-    # complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
-
     complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero)
-    # print("complet_occupancy", complet_occupancy.shape)
-    # print("complet_occupancy", torch.sum(complet_occupancy))
-    # print("complet_occupancy", torch.unique(complet_occupancy))
-
-
     complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
     complet_occupancy_128 = torch.where(complet_labels_128 > 0, one, zero)
-
-    # print("complet_labels_128", complet_labels_128.shape)
-    # print("complet_occupancy_128", complet_occupancy_128.shape)
-    # print("complet_occupancy", complet_occupancy.shape)
-    # print("complet_labels", complet_labels.shape)
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
-    # complet_inputs.add_field("complet_input", torch.cat(input_vx, 0))
-    # complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
     complet_inputs.add_field("complet_invalid", complet_invalid)
     complet_inputs.add_field("complet_labels", complet_labels)
     complet_inputs.add_field("complet_occupancy", complet_occupancy)
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
+    complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0).unsqueeze(0))
+    complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0).unsqueeze(0))
+    complet_inputs.add_field("seg_features", torch.cat(seg_features, 0).transpose(0,1))
+    complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+
+    # complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0).unsqueeze(0))
+
 
     # del seg_inputs, completion_collection, filenames
     # seg_inputs = None
     # completion_collection = None
     # filenames = None
-    return seg_inputs, complet_inputs, completion_collection, filenames
+    return None, complet_inputs, completion_collection, filenames
