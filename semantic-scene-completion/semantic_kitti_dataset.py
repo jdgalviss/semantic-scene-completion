@@ -20,8 +20,8 @@ kitti_config = yaml.safe_load(open(config_file, 'r'))
 remapdict = kitti_config["learning_map"]
 
 SPLIT_SEQUENCES = {
-    # "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
-    "train": ["00"],
+    "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
+    # "train": ["00"],
     "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"]
 }
@@ -347,8 +347,13 @@ def Merge(tbl):
     invalid_locs = torch.where(complet_labels > 255)
     complet_labels[invalid_locs] = 255
     complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero)
+    
     complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
     complet_occupancy_128 = torch.where(complet_labels_128 > 0, one, zero)
+
+    complet_labels_64 = (F.interpolate(complet_labels_128.unsqueeze(0), size=(64,64,8), mode="nearest"))[0]
+    complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
     complet_inputs.add_field("complet_invalid", complet_invalid)
@@ -356,6 +361,8 @@ def Merge(tbl):
     complet_inputs.add_field("complet_occupancy", complet_occupancy)
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
+    complet_inputs.add_field("complet_labels_64", complet_labels_64)
+    complet_inputs.add_field("complet_occupancy_64", complet_occupancy_64)
     complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0).unsqueeze(0))
     complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0).unsqueeze(0))
     complet_inputs.add_field("seg_features", torch.cat(seg_features, 0).transpose(0,1))
