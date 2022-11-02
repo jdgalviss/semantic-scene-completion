@@ -385,6 +385,7 @@ class MyModel(nn.Module):
         # print("feature_prediction: ", feature_prediction.shape)
         
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
+        torch.cuda.empty_cache()
         occupancy_prediction = self.occupancy_256_head(feature_prediction)
         occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
         occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)

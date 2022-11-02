@@ -23,8 +23,10 @@ device = torch.device("cuda:0")
 def main():
     re_seed(0)
     train_dataset = SemanticKITTIDataset(config, "train",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT)
-    val_dataset = SemanticKITTIDataset(config, "valid",do_overfit=False)
-    # val_dataset = SemanticKITTIDataset(config, "train",do_overfit=True, num_samples_overfit=10)
+    if config.GENERAL.OVERFIT:
+        val_dataset = SemanticKITTIDataset(config, "train",do_overfit=True, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT)
+    else:
+        val_dataset = SemanticKITTIDataset(config, "valid",do_overfit=False)
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -49,7 +51,13 @@ def main():
     )
 
     model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES).to(device)
-
+    if config.GENERAL.CHECKPOINT_PATH is not None:
+        model.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH))
+        training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0])
+        print("TRAINING_EPOCH: ", training_epoch)
+    else:
+        training_epoch = 0
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
                                           betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                           weight_decay=config.SOLVER.WEIGHT_DECAY)
@@ -58,27 +66,30 @@ def main():
     save_config(config, experiment_dir)
     writer = SummaryWriter(log_dir=str(experiment_dir + "/tensorboard"))
 
-    training_epoch = 1
+    
     steps_schedule = config.TRAIN.STEPS
-    iteration = 1
+    iteration = training_epoch * len(train_dataloader)
     seg_label_to_cat = train_dataset.label_to_names
     model.train()
     pytorch_total_params = sum(p.numel() for p in model.parameters())
     pytorch_total_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total params: ", pytorch_total_params)
     print("Total trainable params: ", pytorch_total_trainable_params)
-    for epoch in range(training_epoch, training_epoch+int(config.TRAIN.MAX_STEPS/len(train_dataloader))):
+    for epoch in range(training_epoch, training_epoch+int(config.TRAIN.MAX_EPOCHS)):
         model.train()
-        if iteration>=steps_schedule[0]:
-            if iteration>=steps_schedule[1]:
-                if iteration>=steps_schedule[2]:
+        if epoch>=steps_schedule[0]:
+            if epoch>=steps_schedule[1]:
+                if epoch>=steps_schedule[2]:
                     config.GENERAL.LEVEL = "FULL"
                 else:
                     config.GENERAL.LEVEL = "256"
             else:
                 config.GENERAL.LEVEL = "128"
         # with tqdm(total=len(train_dataloader)) as pbar:
-        for i, batch in enumerate(train_dataloader):
+        # for i, batch in enumerate(train_dataloader):
+        pbar = tqdm(train_dataloader)
+        consecutive_fails = 0
+        for i, batch in enumerate(pbar):
             optimizer.zero_grad()
 
             # print("batch len: ", len(batch))
@@ -90,7 +101,7 @@ def main():
             # print("seg_labelweights: ", seg_labelweights.shape)
             # print("seg_labelweights: ", torch.unique(seg_labelweights))
             # print("compl_labelweights: ", compl_labelweights.shape)
-            # print("compl_labelweights: ", torch.unique(compl_labelweights))
+            # print("compl_labelweights: ", (compl_labelweights))
             # complet_coords = complet_inputs['complet_coords'].to(device)
             # complet_invalid = complet_inputs['complet_invalid'].to(device)
             # complet_labels = complet_inputs['complet_labels'].to(device)
@@ -103,9 +114,14 @@ def main():
                 losses, _ = model(complet_inputs, compl_labelweights)
             except Exception as e:
                 print(e, "Error in forward pass: ", iteration)
+                consecutive_fails += 1
+                if consecutive_fails > 20:
+                    print("Too many consecutive fails, exiting")
+                    return
                 del complet_inputs
                 torch.cuda.empty_cache()
                 continue
+            consecutive_fails = 0
             total_loss: torch.Tensor = 0.0
             total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT 
             if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
@@ -119,9 +135,12 @@ def main():
             if torch.is_tensor(total_loss):
                 total_loss.backward()
                 optimizer.step()
-                log_msg = "\r step: {}/{}, ".format(epoch, i)
+                log_msg = {"epoch": epoch}
+                log_msg["level"] = config.GENERAL.LEVEL
+
                 for k, v in losses.items():
-                    log_msg += "{}: {:.4f}, ".format(k, v)
+                    # log_msg[k] = v.item()
+                    # log_msg += "{}: {:.4f}, ".format(k, v)
                     if "256" in k:
                         writer.add_scalar('train_256/'+k, v.detach().cpu(), iteration)
                     elif "128" in k:
@@ -129,17 +148,21 @@ def main():
                     elif "64" in k:
                         writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
 
-                log_msg += "total_loss: {:.4f}".format(total_loss)
-                print(log_msg)
+                # log_msg += "total_loss: {:.4f}".format(total_loss)
+                log_msg["total_loss"] = total_loss.item()
+                # print(log_msg, end="\r")
+                pbar.set_postfix(log_msg)
+
             writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
             iteration += 1
                 
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
+            writer.add_scalar('epoch', epoch, iteration)
 
         # Save checkpoint
-        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and config.GENERAL.LEVEL == "FULL":
-            torch.save(model.state_dict(), experiment_dir + "/model-{}.pth".format(iteration))
+        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0:
+            torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
 
         # # ============== Evaluation ==============
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL == "FULL":
@@ -148,14 +171,15 @@ def main():
             with torch.no_grad():
                 seg_evaluator = iouEval(config.SEGMENTATION.NUM_CLASSES, [])
 
-                for i, batch in enumerate(val_dataloader):
+                # for i, batch in enumerate(val_dataloader):
+                for i, batch in enumerate(tqdm(val_dataloader)):
                     _, complet_inputs, _, _ = batch
                     
                     try:
                         results = model.inference(complet_inputs)
                     except Exception as e:
                         print(e, "Error in inference: ", iteration)
-                        del complet_coords, complet_invalid
+                        del complet_inputs
                         torch.cuda.empty_cache()
                         continue
                     # Semantic Eval

@@ -58,6 +58,8 @@ class SemanticKITTIDataset(Dataset):
         self.files = {}
         self.filenames = []
         self.seg_path = config.GENERAL.DATASET_DIR
+        if config.GENERAL.OVERFIT:
+            SPLIT_SEQUENCES["train"] = ["00"]
         # Create dictionary where keys are each ones of the extensions present in the split
         for ext in SPLIT_FILES[split]:
             self.files[EXT_TO_NAME[ext]] = []
@@ -131,9 +133,10 @@ class SemanticKITTIDataset(Dataset):
             complt_num_per_class = np.array(config.TRAIN.COMPLT_NUM_PER_CLASS)
 
             seg_labelweights = seg_num_per_class / np.sum(seg_num_per_class)
-            self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
+            self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 15.0)
             compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
-            self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
+            self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 15.0)
+            self.compl_labelweights[0] = np.amax(self.compl_labelweights)
         else:
             self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
             self.seg_labelweights = torch.Tensor(np.ones(19))
