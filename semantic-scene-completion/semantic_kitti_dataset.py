@@ -63,11 +63,11 @@ class SemanticKITTIDataset(Dataset):
         # Create dictionary where keys are each ones of the extensions present in the split
         for ext in SPLIT_FILES[split]:
             self.files[EXT_TO_NAME[ext]] = []
-        self.label_to_names = {0: 'car', 1: 'bicycle', 2: 'motorcycle', 3: 'truck',
-                               4: 'other-vehicle', 5: 'person', 6: 'bicyclist', 7: 'motorcyclist',
-                               8: 'road', 9: 'parking', 10: 'sidewalk', 11: 'other-ground', 12: 'building',
-                               13: 'fence', 14: 'vegetation', 15: 'trunk', 16: 'terrain', 17: 'pole',
-                               18: 'traffic-sign', 19: 'other-object', 20: 'other-object'}
+        self.label_to_names = {0: 'unlabeled', 1: 'car', 2: 'bicycle', 3: 'motorcycle', 4: 'truck',
+                               5: 'other-vehicle', 6: 'person', 7: 'bicyclist', 8: 'motorcyclist',
+                               9: 'road', 10: 'parking', 11: 'sidewalk', 12: 'other-ground', 13: 'building',
+                               14: 'fence', 15: 'vegetation', 16: 'trunk', 17: 'terrain', 18: 'pole',
+                               19: 'traffic-sign', 20: 'other-object', 21: 'other-object'}
         # Iterate over all sequences present in split
         for sequence in SPLIT_SEQUENCES[split]:
             # Form path to voxels in split
@@ -136,7 +136,7 @@ class SemanticKITTIDataset(Dataset):
             self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 15.0)
             compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
             self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 15.0)
-            self.compl_labelweights[0] = np.amax(self.compl_labelweights)
+            # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
         else:
             self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
             self.seg_labelweights = torch.Tensor(np.ones(19))

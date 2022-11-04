@@ -53,7 +53,7 @@ def main():
     model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES).to(device)
     if config.GENERAL.CHECKPOINT_PATH is not None:
         model.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH))
-        training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0])
+        training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0]) + 1
         print("TRAINING_EPOCH: ", training_epoch)
     else:
         training_epoch = 0
@@ -169,7 +169,7 @@ def main():
             model.eval()
             print("\nEvaluating on {} samples".format(len(val_dataloader)))
             with torch.no_grad():
-                seg_evaluator = iouEval(config.SEGMENTATION.NUM_CLASSES, [])
+                seg_evaluator = iouEval(config.SEGMENTATION.NUM_CLASSES, [0,20,21])
 
                 # for i, batch in enumerate(val_dataloader):
                 for i, batch in enumerate(tqdm(val_dataloader)):
@@ -201,11 +201,12 @@ def main():
                 _, class_jaccard = seg_evaluator.getIoU()
                 m_jaccard = class_jaccard.mean()
                 print("mean_iou: ", m_jaccard)
+                ignore = [0]
                 for i, jacc in enumerate(class_jaccard):
-                    writer.add_scalar('eval/{}'.format(seg_label_to_cat[i]), jacc*100, iteration)
-
-                    print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
-                        i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
+                    if i not in ignore:
+                        writer.add_scalar('eval/{}'.format(seg_label_to_cat[i]), jacc*100, iteration)
+                        print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
+                            i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
                 print('\nEval point avg class IoU: %f \n' % (m_jaccard*100))
                 writer.add_scalar('eval/mIoU', m_jaccard*100, iteration)
             torch.cuda.empty_cache()
