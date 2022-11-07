@@ -14,7 +14,7 @@ _C.GENERAL.OVERFIT = False
 _C.GENERAL.NUM_SAMPLES_OVERFIT = 100
 _C.GENERAL.LEVEL = "64"
 _C.GENERAL.OUT_DIR = "experiments"
-_C.GENERAL.CHECKPOINT_PATH = "/usr/src/app/semantic-scene-completion/experiments/51/model256-15.pth"
+_C.GENERAL.CHECKPOINT_PATH = None #"/usr/src/app/semantic-scene-completion/experiments/56/modelFULL-35.pth"
 
 
 # -----------------------------------------------------------------------------
@@ -29,7 +29,7 @@ _C.TRAIN.COMPLT_NUM_PER_CLASS = [7632350044, 15783539,  125136, 118809, 646799, 
 _C.TRAIN.BATCH_SIZE = 1
 _C.TRAIN.NUM_WORKERS = 1
 _C.TRAIN.CHECKPOINT_PERIOD = 1
-_C.TRAIN.EVAL_PERIOD = 5
+_C.TRAIN.EVAL_PERIOD = 1
 _C.TRAIN.STEPS = [5, 15, 31]
 # _C.TRAIN.STEPS = [15, 40, 100] # OVERFIT
 

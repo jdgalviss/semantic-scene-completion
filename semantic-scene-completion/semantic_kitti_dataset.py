@@ -21,7 +21,6 @@ remapdict = kitti_config["learning_map"]
 
 SPLIT_SEQUENCES = {
     "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
-    # "train": ["00"],
     "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"]
 }
@@ -352,10 +351,10 @@ def Merge(tbl):
     complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero)
     
     complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
-    complet_occupancy_128 = torch.where(complet_labels_128 > 0, one, zero)
+    complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero)
 
     complet_labels_64 = (F.interpolate(complet_labels_128.unsqueeze(0), size=(64,64,8), mode="nearest"))[0]
-    complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+    complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero)
 
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))

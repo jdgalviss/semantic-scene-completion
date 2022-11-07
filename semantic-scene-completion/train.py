@@ -1,8 +1,6 @@
-import torch.optim as optim
 import torch
 from configs import config
 import argparse
-import shutil
 from semantic_kitti_dataset import SemanticKITTIDataset, Merge
 import numpy as np
 import time
@@ -169,7 +167,7 @@ def main():
             model.eval()
             print("\nEvaluating on {} samples".format(len(val_dataloader)))
             with torch.no_grad():
-                seg_evaluator = iouEval(config.SEGMENTATION.NUM_CLASSES, [0,20,21])
+                seg_evaluator = iouEval(config.SEGMENTATION.NUM_CLASSES, [])
 
                 # for i, batch in enumerate(val_dataloader):
                 for i, batch in enumerate(tqdm(val_dataloader)):

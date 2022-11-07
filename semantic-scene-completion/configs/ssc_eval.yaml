@@ -1,0 +1,3 @@
+GENERAL:
+  MANUAL_SEED: 123
+  CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/57/modelFULL-64.pth"
