@@ -209,3 +209,5 @@ split: # sequence numbers
     - 19
     - 20
     - 21
+
+grid_dims: [256, 32, 256]  # (W, H, D)

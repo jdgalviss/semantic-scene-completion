@@ -22,16 +22,20 @@ remapdict = kitti_config["learning_map"]
 SPLIT_SEQUENCES = {
     "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
     "valid": ["08"],
-    "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"]
+    "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
+    "trainval": ["00"],
+
 }
 
 SPLIT_FILES = {
-    "train": [".bin", ".label", ".invalid", ".occluded"],
-    "valid": [".bin", ".label", ".invalid", ".occluded"],
-    "test": [".bin"]
+    "train": [".bin", ".label", ".label_128", ".label_64", ".invalid", ".invalid_64", ".invalid_128", ".occluded"],
+    "valid": [".bin", ".label", ".label_128", ".label_64", ".invalid", ".invalid_64", ".invalid_128", ".occluded"],
+    "test": [".bin"],
+    "trainval": [".bin", ".label", ".label_128", ".label_64", ".invalid", ".invalid_64", ".invalid_128",  ".occluded"],
+
 }
 
-EXT_TO_NAME = {".bin": "input", ".label": "label", ".invalid": "invalid", ".occluded": "occluded"}
+EXT_TO_NAME = {".bin": "input", ".label": "label", ".label_128": "label_128", ".label_64": "label_64", ".invalid": "invalid", ".invalid_128": "invalid_128", ".invalid_64": "invalid_64", ".occluded": "occluded"}
 scan = laserscan.SemLaserScan(nclasses=20, sem_color_dict=kitti_config['color_map'])
 
 
@@ -132,9 +136,11 @@ class SemanticKITTIDataset(Dataset):
             complt_num_per_class = np.array(config.TRAIN.COMPLT_NUM_PER_CLASS)
 
             seg_labelweights = seg_num_per_class / np.sum(seg_num_per_class)
-            self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 15.0)
+            self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
             compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
-            self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 15.0)
+            self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
+            self.compl_labelweights =1.0*self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
+
             # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
         else:
             self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
@@ -165,15 +171,24 @@ class SemanticKITTIDataset(Dataset):
 
         # read raw data and unpack (if necessary)
         for typ in self.files.keys():
-            if typ == "label":
-                scan_data = np.fromfile(self.files[typ][t], dtype=np.uint16)
-                scan_data = self.comletion_remap_lut[scan_data]
+            if typ == "label" or typ == "label_128" or typ == "label_64":
+                scan_data = np.fromfile(self.files[typ][t], dtype=np.uint16)            
             else:
                 scan_data = unpack(np.fromfile(self.files[typ][t], dtype=np.uint8))
-            scan_data = scan_data.reshape(self.config.COMPLETION.FULL_SCALE)
-            scan_data = data_augmentation(torch.Tensor(scan_data).unsqueeze(0), stat)
+            
+            if typ == "label":
+                scan_data = self.comletion_remap_lut[scan_data]
+            if typ == "label_128" or typ == "invalid_128":
+                scan_data = np.int32(scan_data.reshape(self.config.COMPLETION.SECOND_SCALE))
+            elif typ == "label_64" or typ == "invalid_64":
+                scan_data = np.int32(scan_data.reshape(self.config.COMPLETION.THIRD_SCALE))
+            else:
+                scan_data = scan_data.reshape(self.config.COMPLETION.FULL_SCALE)
+            scan_data = self.data_augmentation(torch.Tensor(scan_data).unsqueeze(0), stat)
+            
             # turn in actual voxel grid representation.
             completion_collection[typ] = scan_data
+
 
         '''Load Segmentation Data'''
         seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
@@ -191,6 +206,11 @@ class SemanticKITTIDataset(Dataset):
         else:
             feature = remissions.reshape(-1, 1)
 
+        # Add noise to input data
+        if self.augment:
+            feature += np.random.randn(*feature.shape)*self.config.TRAIN.NOISE_LEVEL
+
+
         '''Process Segmentation Data'''
         segmentation_collection = {}
         coords, label, feature, idxs = self.process_seg_data(xyz, label, feature)
@@ -206,8 +226,23 @@ class SemanticKITTIDataset(Dataset):
         pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1))
 
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
-
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
+
+
+        # Augmentation
+        features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
+        coords = coords[:, [2, 1, 0]]
+        coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        coords = coords.long()
+
+        # Create dense voxel grid of features so we can perform augmentation TODO(juan.galvis): this is slow.
+        if self.augment and stat != 0:
+            feature_voxels = torch.zeros((256,256,32)) # TODO (juan.galvis): Hardcoded
+            feature_voxels[coords[:,0],coords[:,1],coords[:,2]] = features + 1.0 # TODO (juan.galvis): So we can use non_zero
+            feature_voxels = self.data_augmentation(feature_voxels.unsqueeze(0), stat)
+            coords = torch.nonzero(feature_voxels[0])
+            features = feature_voxels[0,coords[:,0],coords[:,1],coords[:,2]] - 1.0
+
         # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
         voxel_centers += torch.Tensor(self.voxel_generator.coors_range[0:3])
@@ -216,6 +251,7 @@ class SemanticKITTIDataset(Dataset):
             'coords': coords,
             'voxel_centers': voxel_centers,
             'num_points_per_voxel': num_points_per_voxel,
+            'features': features,
         })
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
@@ -245,24 +281,25 @@ class SemanticKITTIDataset(Dataset):
         return coords, label, feature, idxs
 
 
-def data_augmentation(t, state, inverse=False):
-    assert t.dim() == 4, 'input dimension should be 4!'
-    if state == 1:
-        aug_t = t.flip([1])
-    elif state == 2:
-        aug_t = t.flip([2])
-    # elif state == 3:
-    #     k = 1 if not inverse else 3
-    #     aug_t = t.rot90(k, [1, 2])
-    # elif state == 4:
-    #     aug_t = t.rot90(2, [1, 2])
-    # elif state == 5:
-    #     k = 3 if not inverse else 1
-    #     aug_t = t.rot90(k, [1, 2])
-    else:
-        aug_t = t
+    def data_augmentation(self, t, state, inverse=False):
+        assert t.dim() == 4, 'input dimension should be 4!'
+        if state == 1:
+            # aug_t = t.flip([2])
+            aug_t = t.flip([1])
+        elif state == 2:
+            aug_t = t.flip([2])
+        # elif state == 3:
+        #     k = 1 if not inverse else 3
+        #     aug_t = t.rot90(k, [1, 2])
+        # elif state == 4:
+        #     aug_t = t.rot90(2, [1, 2])
+        # elif state == 5:
+        #     k = 3 if not inverse else 1
+        #     aug_t = t.rot90(k, [1, 2])
+        else:
+            aug_t = t
 
-    return aug_t
+        return aug_t
 
 # def sparse_tensor_augmentation(st, states):
 #     spatial_shape = st.spatial_shape
@@ -292,9 +329,18 @@ def Merge(tbl):
     seg_labels = []
     complet_coords = []
     complet_invalid = []
+    complet_invalid_64 = []
+    complet_invalid_128 = []
+
     voxel_centers = []
     complet_invoxel_features = []
     complet_labels = []
+    complet_labels_64 = []
+    complet_labels_128 = []
+
+    complet_features = []
+
+
     filenames = []
     offset = 0
     input_vx = []
@@ -316,20 +362,31 @@ def Merge(tbl):
 
         input_vx.append(completion_collection['input'])
         complet_labels.append(completion_collection['label'])
+        complet_labels_128.append(completion_collection['label_128'])
+        complet_labels_64.append(completion_collection['label_64'])
         complet_invalid.append(completion_collection['invalid'])
+        complet_invalid_64.append(completion_collection['invalid_64'])
+        complet_invalid_128.append(completion_collection['invalid_128'])
+
         stats.append(completion_collection['stat'])
 
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
         complet_invoxel_feature = aliment_collection['voxels']
         complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
         offset += seg_coord.shape[0]
+
+        complet_features.append(aliment_collection['features'])
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
     complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
-    complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
+    # complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
+    complet_features = torch.cat(complet_features, 0)
+
     # seg_inputs = {'seg_coords': torch.cat(seg_coords, 0),
     #               'seg_labels': torch.cat(seg_labels, 0),
     #               'seg_features': torch.cat(seg_features, 0)
     #               }
+    
+
 
     # complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
     #                   'complet_input': torch.cat(input_vx, 0),
@@ -342,25 +399,49 @@ def Merge(tbl):
     one = torch.ones([1])
     zero = torch.zeros([1])
     complet_labels = torch.cat(complet_labels, 0)
+    complet_labels_128 = torch.cat(complet_labels_128, 0)
+    complet_labels_64 = torch.cat(complet_labels_64, 0)
     complet_invalid = torch.cat(complet_invalid, 0) 
+    complet_invalid_128 = torch.cat(complet_invalid_128, 0)
+    complet_invalid_64 = torch.cat(complet_invalid_64, 0)
     complet_coords = torch.cat(complet_coords, 0)
     invalid_locs = torch.nonzero(complet_invalid[0])
+    invalid_locs_128 = torch.nonzero(complet_invalid_128[0])
+    invalid_locs_64 = torch.nonzero(complet_invalid_64[0])
+
+    
+    # input_vx = torch.cat(input_vx, 0)    
+    # input_coords = torch.nonzero(input_vx)
+
+     # invalid locations
     complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
     invalid_locs = torch.where(complet_labels > 255)
     complet_labels[invalid_locs] = 255
-    complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero)
-    
-    complet_labels_128 = (F.interpolate(complet_labels.unsqueeze(0), size=(128,128,16), mode="nearest"))[0]
-    complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero)
+    # complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+    complet_occupancy = torch.where(complet_labels > 0, one, zero) # TODO: is invalid occupied or unoccupied?
 
-    complet_labels_64 = (F.interpolate(complet_labels_128.unsqueeze(0), size=(64,64,8), mode="nearest"))[0]
-    complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero)
+    
+    # complet_labels_128 = F.max_pool3d(complet_labels.float(), kernel_size=2, stride=2).int()
+    # complet_occupancy_128 = F.max_pool3d(complet_occupancy.float(), kernel_size=2, stride=2)
+    complet_labels_128[0, invalid_locs_128[:, 0], invalid_locs_128[:, 1], invalid_locs_128[:, 2]] = 255
+    invalid_locs = torch.where(complet_labels_128 > 255)
+    complet_labels_128[invalid_locs] = 255
+    complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
+
+    # complet_labels_64 = F.max_pool3d(complet_labels_128.float(), kernel_size=2, stride=2).int()
+    # complet_occupancy_64 = F.max_pool3d(complet_occupancy_128.float(), kernel_size=2, stride=2)
+    complet_labels_64[0, invalid_locs_64[:, 0], invalid_locs_64[:, 1], invalid_locs_64[:, 2]] = 255
+    invalid_locs = torch.where(complet_labels_64 > 255)
+    complet_labels_64[invalid_locs] = 255
+    complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+
+
 
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
     complet_inputs.add_field("complet_invalid", complet_invalid)
-    complet_inputs.add_field("complet_labels", complet_labels)
-    complet_inputs.add_field("complet_occupancy", complet_occupancy)
+    complet_inputs.add_field("complet_labels_256", complet_labels)
+    complet_inputs.add_field("complet_occupancy_256", complet_occupancy)
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
     complet_inputs.add_field("complet_labels_64", complet_labels_64)
@@ -369,6 +450,8 @@ def Merge(tbl):
     complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0).unsqueeze(0))
     complet_inputs.add_field("seg_features", torch.cat(seg_features, 0).transpose(0,1))
     complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+    # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
+
 
     # complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0).unsqueeze(0))
 

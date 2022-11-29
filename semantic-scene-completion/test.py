@@ -73,7 +73,7 @@ def main():
             # Semantic Eval
             semantic_prediction = results['semantic_256']
             prediction = results['semantic_prediction']
-            semantic_labels = collect(complet_inputs,'complet_labels') #.long()
+            semantic_labels = collect(complet_inputs,"complet_labels_256") #.long()
             predicted_coordinates = prediction.C.long()
             predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
             semantic_labels = get_sparse_values(semantic_labels.unsqueeze(0), predicted_coordinates)

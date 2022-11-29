@@ -15,3 +15,4 @@ jupyterlab
 k3d
 tensorboard
 tensorboardX
+imageio

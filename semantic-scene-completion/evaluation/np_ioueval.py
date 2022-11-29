@@ -14,8 +14,8 @@ class iouEval:
     self.ignore = np.array(ignore, dtype=np.int64)
     self.include = np.array(
         [n for n in range(self.n_classes) if n not in self.ignore], dtype=np.int64)
-    print("[IOU EVAL] IGNORE: ", self.ignore)
-    print("[IOU EVAL] INCLUDE: ", self.include)
+    # print("[IOU EVAL] IGNORE: ", self.ignore)
+    # print("[IOU EVAL] INCLUDE: ", self.include)
 
     # reset the class counters
     self.reset()
@@ -34,7 +34,7 @@ class iouEval:
     y_row = y.reshape(-1)  # de-batchify
 
     # check
-    assert(x_row.shape == x_row.shape)
+    assert(x_row.shape == y_row.shape)
 
     # create indexes
     idxs = tuple(np.stack((x_row, y_row), axis=0))

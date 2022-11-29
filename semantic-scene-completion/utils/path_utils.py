@@ -11,8 +11,8 @@ def create_new_experiment_folder(folder_name: str) -> str:
     if len(files)>0:
         max_file = max(files)
     else:
-        max_file = "/00"
-    experiment_dir = folder_name + "/{:02d}".format(int(max_file.split('/')[-1].split('_')[0])+1)
+        max_file = "/000"
+    experiment_dir = folder_name + "/{:03d}".format(int(max_file.split('/')[-1].split('_')[0])+1)
     os.mkdir(experiment_dir)
     return experiment_dir
 

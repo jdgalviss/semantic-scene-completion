@@ -36,8 +36,8 @@ class MyModel(nn.Module):
     def forward(self, targets, weights):
         # Put coordinates in the right order
         complet_coords = collect(targets, "complet_coords").squeeze()
-        complet_coords = complet_coords[:, [0, 3, 2, 1]]
-        complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        # complet_coords = complet_coords[:, [0, 3, 2, 1]]
+        # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
         complet_features = collect(targets, "complet_features")
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
@@ -77,7 +77,7 @@ class MyModel(nn.Module):
         
         losses = {}
         results = {}
-
+        
         # level-64
         if predictions[2] is None:
             return {}, {}
@@ -88,7 +88,7 @@ class MyModel(nn.Module):
 
         # level-128
         if predictions[1] is None:
-            return {}, {}
+            return losses, results
         losses_128, results_128 = self.forward_128(predictions[1], targets, weights)
         
         losses.update(losses_128)
@@ -99,7 +99,7 @@ class MyModel(nn.Module):
             return losses, results
         
         # Occupancy
-        losses_256, results_256, features_256 = self.forward_256(predictions[0], targets)
+        losses_256, results_256, features_256 = self.forward_256(predictions[0], targets, weights)
         losses.update(losses_256)
         results.update(results_256)
 
@@ -120,7 +120,7 @@ class MyModel(nn.Module):
         semantic_prediction = self.semantic_head(predictions)
         # print("\nsemantic_prediction: ", semantic_prediction.shape)
         if semantic_prediction is not None:
-            semantic_ground_truth: torch.LongTensor = collect(targets, "complet_labels").long()
+            semantic_ground_truth: torch.LongTensor = collect(targets, "complet_labels_256").long()
             semantic_loss, _ = self.compute_semantic_256_loss(semantic_prediction, semantic_ground_truth, weights)
             hierarchy_losses.update(semantic_loss)
             # hierarchy_results.update(semantic_result)
@@ -157,7 +157,7 @@ class MyModel(nn.Module):
         # print("semantic_labels: ", semantic_labels.shape)
         return {"semantic_256": loss_mean}, {"semantic_256": prediction}
 
-    def forward_256(self, predictions, targets):
+    def forward_256(self, predictions, targets, weights):
         hierarchy_losses = {}
         hierarchy_results = {}
 
@@ -185,12 +185,12 @@ class MyModel(nn.Module):
 
             occupancy_prediction = self.occupancy_256_head(feature_prediction)
             # print("occupancy_prediction: ", occupancy_prediction.shape)
-            occupancy_ground_truth = collect(targets, "complet_occupancy")
+            occupancy_ground_truth = collect(targets, "complet_occupancy_256")
             # print("occupancy_gt: ", occupancy_ground_truth.shape)
             # print("occupancy_gt values:", torch.unique(occupancy_ground_truth))
 
             occupancy_loss, occupancy_result = self.compute_occupancy_256_loss(occupancy_prediction,
-                                                                               occupancy_ground_truth)
+                                                                               occupancy_ground_truth, weights)
 
             hierarchy_losses.update(occupancy_loss)
             # hierarchy_results.update(occupancy_result)
@@ -205,7 +205,7 @@ class MyModel(nn.Module):
 
         return hierarchy_losses, hierarchy_results, feature_prediction
 
-    def compute_occupancy_256_loss(self, prediction, ground_truth) -> Tuple[Dict, Dict]:
+    def compute_occupancy_256_loss(self, prediction, ground_truth, weights) -> Tuple[Dict, Dict]:
         prediction = mask_invalid_sparse_voxels(prediction)
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
@@ -216,7 +216,10 @@ class MyModel(nn.Module):
         ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
         # print("prediction.F: ", prediction.F.shape)
         # print("ground_truth_values: ", ground_truth_values.shape)
-        loss_mean = self.criterion_occupancy(prediction.F, ground_truth, reduction="mean")
+        # Occupancy weights
+        occupancy_weights = torch.ones_like(ground_truth)
+        occupancy_weights[ground_truth == 0] = torch.mean(weights[1:])/weights[0]
+        loss_mean = self.criterion_occupancy(prediction.F, ground_truth, pos_weight=occupancy_weights, reduction="mean")
 
 
         # if len(loss) > 0:
@@ -228,7 +231,7 @@ class MyModel(nn.Module):
         # print("occupancy_prediction: ", prediction.shape)
         return {"occupancy_256": loss_mean}, {"occupancy_256": prediction}
 
-    def forward_128(self, predictions, targets, weights ):
+    def forward_128(self, predictions, targets, weights):
         hierarchy_losses = {}
         hierarchy_results = {}
 
@@ -237,7 +240,7 @@ class MyModel(nn.Module):
         # print("\noccupancy_prediction: ", occupancy_prediction.shape)
         if occupancy_prediction is not None:
             occupancy_ground_truth = collect(targets, "complet_occupancy_128")
-            occupancy_loss, _ = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth)
+            occupancy_loss, _ = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth, weights)
             hierarchy_losses.update(occupancy_loss)
             # hierarchy_results.update(occupancy_result)
         
@@ -253,14 +256,18 @@ class MyModel(nn.Module):
 
         return hierarchy_losses, hierarchy_results
 
-    def compute_occupancy_128_loss(self,prediction: Me.SparseTensor, ground_truth: torch.Tensor):
-        prediction = mask_invalid_sparse_voxels(prediction, frustum_dim=[128,128,16])
+    def compute_occupancy_128_loss(self,prediction: Me.SparseTensor, ground_truth: torch.Tensor, weights: torch.Tensor):
+        prediction = mask_invalid_sparse_voxels(prediction)
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
         # Get sparse GT values from dense tensor
         ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
-        loss = self.criterion_occupancy(prediction.F, ground_truth_values, reduction="none")
+        
+        # Occupancy weights
+        occupancy_weights = torch.ones_like(ground_truth_values)
+        occupancy_weights[ground_truth_values == 0] = torch.mean(weights[1:])/weights[0]
+        loss = self.criterion_occupancy(prediction.F, ground_truth_values, pos_weight=occupancy_weights, reduction="none")
         if len(loss) > 0:
             loss_mean = loss.mean()
         else:
@@ -269,7 +276,7 @@ class MyModel(nn.Module):
         return {"occupancy_128": loss_mean}, {"occupancy_128": prediction}
 
     def compute_semantic_128_loss(self, prediction: Me.SparseTensor, ground_truth: torch.Tensor, weights: torch.Tensor) -> Tuple[Dict, Dict]:
-        prediction = mask_invalid_sparse_voxels(prediction, frustum_dim=[128,128,16])
+        prediction = mask_invalid_sparse_voxels(prediction)
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
@@ -294,8 +301,6 @@ class MyModel(nn.Module):
             loss_mean = 0
 
         prediction = Me.MinkowskiSoftmax(dim=1)(prediction)
-        # print(semantic_softmax.shape)
-        # print(torch.argmax(semantic_softmax.F, 1).unsqueeze(1).shape)
         prediction = Me.SparseTensor(torch.argmax(prediction.F, 1).unsqueeze(1),
                                           coordinate_map_key=prediction.coordinate_map_key,
                                           coordinate_manager=prediction.coordinate_manager)
@@ -310,7 +315,7 @@ class MyModel(nn.Module):
         occupancy_prediction = predictions[0]
         occupancy_ground_truth = collect(targets, "complet_occupancy_64")
         occupancy_loss, occupancy_result = self.compute_occupancy_64_loss(occupancy_prediction, occupancy_ground_truth,
-                                                                          valid_mask)
+                                                                          valid_mask, weights)
         hierarchy_losses.update(occupancy_loss)
         hierarchy_results.update(occupancy_result)
 
@@ -325,8 +330,10 @@ class MyModel(nn.Module):
         return hierarchy_losses, hierarchy_results
 
     def compute_occupancy_64_loss(self, prediction: torch.Tensor, ground_truth: torch.Tensor,
-                                  mask: torch.Tensor) -> Tuple[Dict, Dict]:
-        loss = self.criterion_occupancy(prediction[0], ground_truth, reduction="none")
+                                  mask: torch.Tensor, weights: torch.Tensor) -> Tuple[Dict, Dict]:
+        occupancy_weights = torch.ones_like(ground_truth)
+        occupancy_weights[ground_truth == 0] = torch.mean(weights[1:])/weights[0]
+        loss = self.criterion_occupancy(prediction[0], ground_truth, pos_weight=occupancy_weights, reduction="none")
 
         # Only consider loss within the camera frustum
         loss = torch.masked_select(loss, mask)
@@ -361,44 +368,72 @@ class MyModel(nn.Module):
     def inference(self, inputs):
         # Put coordinates in the right order
         complet_coords = collect(inputs,"complet_coords").squeeze()
-        complet_coords = complet_coords[:, [0, 3, 2, 1]]
-        complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        # complet_coords = complet_coords[:, [0, 3, 2, 1]]
+        # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
         complet_features = collect(inputs, "complet_features")
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         sparse_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
-        # print("sparse_coords: ",sparse_coords.shape)
-        # Transform to sparse tensor
-        
-        # print("sparse_coords: ", sparse_coords.shape)
-        # Forward pass through model
-        # complet_valid = torch.logical_not(complet_invalid)
-        # complet_invalid = collect(inputs,"complet_invalid")
-
-        # complet_valid = F.max_pool3d(complet_invalid.float(), kernel_size=2, stride=4).bool()
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()
         unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid)
-        feature_prediction = unet_output.data[0]
-        # print("feature_prediction: ", feature_prediction.shape)
+        predictions = unet_output.data
         
+        # level-64
+        results = {}
+
+        if predictions[2] is None:
+            return {}
+        occupancy_prediction = predictions[2][0]
+        occupancy_probability = torch.sigmoid(occupancy_prediction)
+        results["occupancy_64"] = occupancy_probability
+        semantic_prediction = predictions[2][1]
+        semantic_prediction = torch.argmax(semantic_prediction, dim=1)
+        results["semantic_labels_64"] = semantic_prediction
+
+        # level-128
+        if config.GENERAL.LEVEL == "64" or predictions[1] is None:
+            return results
+        occupancy_prediction: Me.SparseTensor = predictions[1][0]
+        occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
+        occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
+        results["occupancy_128"] = occupancy_prediction
+        semantic_prediction: Me.SparseTensor = predictions[1][1]
+        semantic_prediction = mask_invalid_sparse_voxels(semantic_prediction)
+        semantic_softmax = Me.MinkowskiSoftmax(dim=1)(semantic_prediction)
+        semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
+                                        coordinate_map_key=semantic_prediction.coordinate_map_key,
+                                        coordinate_manager=semantic_prediction.coordinate_manager)
+        results["semantic_prediction_128"] = semantic_prediction
+        results["semantic_labels_128"] = semantic_labels
+
+        # level-256
+        if config.GENERAL.LEVEL == "128":
+            return results
+        feature_prediction = predictions[0]
+        # print("feature_prediction: ", feature_prediction.shape)
         feature_prediction = mask_invalid_sparse_voxels(feature_prediction)
         torch.cuda.empty_cache()
         occupancy_prediction = self.occupancy_256_head(feature_prediction)
         occupancy_prediction = mask_invalid_sparse_voxels(occupancy_prediction)
         occupancy_prediction = Me.MinkowskiSigmoid()(occupancy_prediction)
-        occupancy_mask = (occupancy_prediction.F > 0.5).squeeze()
-        prediction_pruned = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
-        # print("prediction_pruned: ", prediction_pruned.shape)
+        results["occupancy_256"] = occupancy_prediction
+        # level-FULL
+        if config.GENERAL.LEVEL == "FULL":
+            occupancy_mask = (occupancy_prediction.F > 0.5).squeeze()
+            prediction_pruned = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
+            # print("prediction_pruned: ", prediction_pruned.shape)
 
-        semantic_prediction = self.semantic_head(prediction_pruned)
-        semantic_prediction = mask_invalid_sparse_voxels(semantic_prediction)
-        semantic_softmax = Me.MinkowskiSoftmax(dim=1)(semantic_prediction)
-        semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
-                                          coordinate_map_key=semantic_prediction.coordinate_map_key,
-                                          coordinate_manager=semantic_prediction.coordinate_manager)
+            semantic_prediction = self.semantic_head(prediction_pruned)
+            semantic_prediction = mask_invalid_sparse_voxels(semantic_prediction)
+            semantic_softmax = Me.MinkowskiSoftmax(dim=1)(semantic_prediction)
+            semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
+                                            coordinate_map_key=semantic_prediction.coordinate_map_key,
+                                            coordinate_manager=semantic_prediction.coordinate_manager)
+            results["semantic_prediction_256"] = semantic_prediction
+            results["semantic_labels_256"] = semantic_labels                           
 
         # print("occupancy_prediction: ", occupancy_prediction.shape)
         # print("occupancy_mask: ", occupancy_mask.shape)
@@ -406,7 +441,7 @@ class MyModel(nn.Module):
         # print("semantic_prediction: ", semantic_prediction.shape)
         # print("semantic_labels: ", semantic_labels.shape)
 
-        results = {"occupancy_256": occupancy_prediction, "semantic_prediction":semantic_prediction, "semantic_256": semantic_labels}
+        # results = {"occupancy_256": occupancy_prediction, "semantic_prediction":semantic_prediction, "semantic_256": semantic_labels}
         return results
 
 def get_sparse_values(tensor: torch.Tensor, coordinates: torch.Tensor) -> torch.Tensor:

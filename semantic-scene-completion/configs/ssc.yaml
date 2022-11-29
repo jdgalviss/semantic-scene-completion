@@ -1,2 +1,16 @@
 GENERAL:
   MANUAL_SEED: 123
+  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/91/model64-6.pth"
+  # OVERFIT: True
+  # NUM_SAMPLES_OVERFIT: 
+  
+# MODEL:
+#   OCCUPANCY_128_WEIGHT: 0.2
+#   OCCUPANCY_256_WEIGHT: 4.0
+#   OCCUPANCY_64_WEIGHT: 0.1
+#   SEMANTIC_128_WEIGHT: 0.2
+#   SEMANTIC_256_WEIGHT: 2.0
+#   SEMANTIC_64_WEIGHT: 0.1
+
+# SOLVER:
+#   BASE_LR: 0.001
