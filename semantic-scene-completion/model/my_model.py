@@ -350,7 +350,6 @@ class MyModel(nn.Module):
 
     def compute_semantic_64_loss(self, prediction: torch.Tensor, ground_truth: torch.Tensor,
                                   mask: torch.Tensor, weights: torch.Tensor) -> Tuple[Dict, Dict]:
-
         loss = self.criterion_semantics(prediction, ground_truth.long(), weight=weights, reduction="none", ignore_index=255)
         # Only consider loss within the camera frustum
         loss = torch.masked_select(loss, mask)
@@ -391,6 +390,7 @@ class MyModel(nn.Module):
         results["occupancy_64"] = occupancy_probability
         semantic_prediction = predictions[2][1]
         semantic_prediction = torch.argmax(semantic_prediction, dim=1)
+        semantic_prediction[occupancy_probability[0] < 0.5] = 0
         results["semantic_labels_64"] = semantic_prediction
 
         # level-128

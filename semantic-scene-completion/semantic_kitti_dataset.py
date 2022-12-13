@@ -130,7 +130,6 @@ class SemanticKITTIDataset(Dataset):
         for k, v in self.files.items():
             # print(k, len(v))
             assert (len(v) == self.num_files)
-
         if split == 'train':
             seg_num_per_class = np.array(config.TRAIN.SEG_NUM_PER_CLASS)
             complt_num_per_class = np.array(config.TRAIN.COMPLT_NUM_PER_CLASS)
@@ -139,7 +138,11 @@ class SemanticKITTIDataset(Dataset):
             self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
             compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
             self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
+            # self.compl_labelweights = np.ones_like(self.compl_labelweights)
+            
+            
             self.compl_labelweights =1.0*self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
+
 
             # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
         else:
@@ -418,7 +421,7 @@ def Merge(tbl):
     invalid_locs = torch.where(complet_labels > 255)
     complet_labels[invalid_locs] = 255
     # complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-    complet_occupancy = torch.where(complet_labels > 0, one, zero) # TODO: is invalid occupied or unoccupied?
+    complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
 
     
     # complet_labels_128 = F.max_pool3d(complet_labels.float(), kernel_size=2, stride=2).int()
@@ -426,14 +429,18 @@ def Merge(tbl):
     complet_labels_128[0, invalid_locs_128[:, 0], invalid_locs_128[:, 1], invalid_locs_128[:, 2]] = 255
     invalid_locs = torch.where(complet_labels_128 > 255)
     complet_labels_128[invalid_locs] = 255
-    complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
+    # complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
+    complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+
 
     # complet_labels_64 = F.max_pool3d(complet_labels_128.float(), kernel_size=2, stride=2).int()
     # complet_occupancy_64 = F.max_pool3d(complet_occupancy_128.float(), kernel_size=2, stride=2)
     complet_labels_64[0, invalid_locs_64[:, 0], invalid_locs_64[:, 1], invalid_locs_64[:, 2]] = 255
     invalid_locs = torch.where(complet_labels_64 > 255)
     complet_labels_64[invalid_locs] = 255
-    complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+    # complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+    complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+
 
 
 

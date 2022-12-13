@@ -193,6 +193,14 @@ def main():
                     config.GENERAL.LEVEL = "256"
             else:
                 config.GENERAL.LEVEL = "128"
+        
+        '''Adjust learning rate'''
+        lr = max(config.SOLVER.BASE_LR * (config.SOLVER.LR_DECAY** (epoch // config.SOLVER.DECAY_STEP)), config.SOLVER.LR_CLIP)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+        train_writer.add_scalar('train/lr', lr, iteration)
+    
+
         # with tqdm(total=len(train_dataloader)) as pbar:
         # for i, batch in enumerate(train_dataloader):
         pbar = tqdm(train_dataloader)
@@ -304,7 +312,7 @@ def main():
             iteration += 1
             torch.cuda.empty_cache()
             # ========================================
-            eval_writer.add_scalar('epoch', epoch, iteration)
+        eval_writer.add_scalar('epoch', epoch, iteration)
 
         # Save checkpoint
         if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0:
