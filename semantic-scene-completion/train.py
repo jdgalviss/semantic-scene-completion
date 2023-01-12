@@ -14,11 +14,16 @@ from utils import re_seed
 from structures import collect
 from evaluation import iouEval
 from model import get_sparse_values
+import nvidia_smi
+
 
 device = torch.device("cuda:0")
 
 def main():
     re_seed(0)
+    nvidia_smi.nvmlInit()
+    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+
     train_dataset = SemanticKITTIDataset(config, "train",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT, augment=config.TRAIN.AUGMENT)
     if config.GENERAL.OVERFIT:
         val_dataset = SemanticKITTIDataset(config, "train",do_overfit=True, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT)
@@ -241,6 +246,10 @@ def main():
             # Loss backpropagation, optimizer & scheduler step
 
             if torch.is_tensor(total_loss):
+                # Log memory
+                info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+                train_writer.add_scalar('memory/free', info.free, iteration)
+
                 total_loss.backward()
                 optimizer.step()
                 log_msg = {"epoch": epoch}
@@ -262,7 +271,11 @@ def main():
                 pbar.set_postfix(log_msg)
 
             train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
-                
+            
+            
+
+            
+
             # Minkowski Engine recommendation
             torch.cuda.empty_cache()
             # del batch, complet_inputs
@@ -309,6 +322,10 @@ def main():
 
                 eval_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
             
+            # Log memory
+            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+            eval_writer.add_scalar('memory/free', info.free, iteration)
+
             iteration += 1
             torch.cuda.empty_cache()
             # ========================================
