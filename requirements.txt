@@ -16,3 +16,4 @@ k3d
 tensorboard
 tensorboardX
 imageio
+nvidia-ml-py3
