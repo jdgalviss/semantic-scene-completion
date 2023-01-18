@@ -105,9 +105,9 @@ def main():
             model.eval()
             with torch.no_grad():
                 for dataloader_name, dataloader in val_dataloaders.items():
-                    seg_evaluators = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
-                                      "128": iouEval(config.SEGMENTATION.NUM_CLASSES, []),  
-                                      "256": iouEval(config.SEGMENTATION.NUM_CLASSES, []),}
+                    seg_evaluators = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),
+                                      "128": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),  
+                                      "256": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),}
 
                     occ_evaluators = {"64": iouEval(2, []),
                                         "128": iouEval(2, []),  
@@ -171,12 +171,8 @@ def main():
                         # del complet_inputs, results, semantic_labels, semantic_gt, prediction, predicted_coordinates
                     for level in levels:
                         print("\nEvaluating level: {}".format(level))
-                        _, occ_iou = occ_evaluators[level].getIoU()
-                        occ_miou = occ_iou.mean()
-                        # print("mean_occ_iou: ", occ_miou)
-                        _, class_jaccard = seg_evaluators[level].getIoU()
-                        m_jaccard = class_jaccard.mean()
-                        # print("mean_iou: ", m_jaccard)
+                        occ_miou, occ_iou = occ_evaluators[level].getIoU()
+                        m_jaccard, class_jaccard = seg_evaluators[level].getIoU()
                         ignore = []
                         for i, jacc in enumerate(class_jaccard):
                             if i not in ignore:

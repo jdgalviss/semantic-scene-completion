@@ -1,6 +1,6 @@
 from torch import nn
 import MinkowskiEngine as Me
-
+from configs import config
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -19,9 +19,11 @@ class BasicBlock(nn.Module):
         self.conv1 = Me.MinkowskiConvolution(
             inplanes, planes, kernel_size=3, stride=stride, dilation=dilation, dimension=dimension)
         self.norm1 = Me.MinkowskiInstanceNorm(planes)
+        self.dropout1 = Me.MinkowskiDropout(p=config.TRAIN.DROPOUT)
         self.conv2 = Me.MinkowskiConvolution(
             planes, planes, kernel_size=3, stride=1, dilation=dilation, dimension=dimension)
         self.norm2 = Me.MinkowskiInstanceNorm(planes)
+        self.dropout2 = Me.MinkowskiDropout(p=config.TRAIN.DROPOUT)
         self.relu = Me.MinkowskiReLU(inplace=True)
         self.downsample = downsample
 
@@ -31,6 +33,7 @@ class BasicBlock(nn.Module):
         out = self.conv1(x)
         out = self.norm1(out)
         out = self.relu(out)
+        out = self.dropout1(out)
 
         out = self.conv2(out)
         out = self.norm2(out)
@@ -40,6 +43,7 @@ class BasicBlock(nn.Module):
 
         out += residual
         out = self.relu(out)
+        out = self.dropout2(out)
 
         return out
 
