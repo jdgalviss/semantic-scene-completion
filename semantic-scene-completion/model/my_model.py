@@ -9,12 +9,15 @@ import MinkowskiEngine as Me
 import sys
 sys.path.append("..") 
 from structures import collect
+from utils import get_bev
+from .discriminator2D import Discriminator2D, GANLoss
 device = torch.device("cuda:0")
 
 
 class MyModel(nn.Module):
     def __init__(self,num_output_channels=8,unet_features=4,resnet_blocks=1):
         super().__init__()
+        self._is_train_mod = True
         self.model = UNetSparse(num_output_channels, unet_features)
         
         # Heads
@@ -27,13 +30,21 @@ class MyModel(nn.Module):
                                                         resnet_blocks)
         # self.semantic_head = self.semantic_head
 
+        # Discriminators
+        # 2D
+        if config.MODEL.GEN_64_WEIGHT > 0.0:
+            self.discriminator = Discriminator2D(nf_in=1, nf=8, patch_size=96, image_dims=(64, 64), patch=False, use_bias=True, disc_loss_type='vanilla').to(device)
+            self.optimizer_disc = torch.optim.Adam(self.discriminator.parameters(), lr=1*0.0001, weight_decay=0.0)
+            self.gan_loss = GANLoss(loss_type='vanilla')
+
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
         self.criterion_semantics = F.cross_entropy  #nn.CrossEntropyLoss(reduction="none")
 
 
 
-    def forward(self, targets, weights):
+    def forward(self, targets, weights, is_train_mod=True):
+        self._is_train_mod = is_train_mod
         # Put coordinates in the right order
         complet_coords = collect(targets, "complet_coords").squeeze()
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
@@ -358,11 +369,46 @@ class MyModel(nn.Module):
             loss_mean = loss.mean()
         else:
             loss_mean = 0
+        prediction_classes = torch.argmax(prediction, dim=1)
+        prediction_classes = torch.masked_fill(prediction_classes, mask == False, 0)
 
-        prediction = torch.argmax(prediction, dim=1)
-        prediction = torch.masked_fill(prediction, mask == False, 0)
+        # 2D losses
+        # Get BEV from predicted volume (level 64 is already dense)
+        # shape = torch.Size([1, 1, 64, 64, 8])
+        # min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+        # dense, _, _ = encoded.dense(shape, min_coordinate=min_coordinate)
+        if config.MODEL.GEN_64_WEIGHT > 0.0:
 
-        return {"semantic_64": loss_mean}, {"semantic_64": prediction}
+            if not self._is_train_mod:
+                self.discriminator.eval()
+            else:
+                self.discriminator.train()
+            self.optimizer_disc.zero_grad()
+            target2d = get_bev(ground_truth).float()
+            pred2d = get_bev(prediction_classes).float()
+            pred2d_probs = get_bev(prediction[0]).float().unsqueeze(0)
+            loss2d = self.criterion_semantics(pred2d_probs, target2d.long(), weight=weights, reduction="none", ignore_index=255)
+            loss2d = loss2d.mean()
+            pred2d[target2d==255.] = -1.
+            target2d[target2d==255.] = -1.
+            valid = None
+            pred2d = pred2d.unsqueeze(0)
+            target2d = target2d.unsqueeze(0)
+            real_loss, fake_loss, penalty = self.gan_loss.compute_discriminator_loss(self.discriminator, target2d, 
+                                                                            pred2d.contiguous().detach(), valid, None )
+            real_loss = torch.mean(real_loss)
+            fake_loss = torch.mean(fake_loss)
+            disc_loss = (real_loss + fake_loss)
+            if self._is_train_mod:
+                disc_loss.backward()
+                self.optimizer_disc.step()
+            
+            gen_loss = self.gan_loss.compute_generator_loss(self.discriminator, pred2d)
+        else:
+            loss2d = torch.tensor(0.0)
+            disc_loss = torch.tensor(0.0)
+            gen_loss = torch.tensor(0.0)
+        return {"semantic_64": loss_mean, "semantic2D_64": loss2d, "disc_64": disc_loss, "gen_64": gen_loss}, {"semantic_64": prediction_classes}
 
     def inference(self, inputs):
         # Put coordinates in the right order

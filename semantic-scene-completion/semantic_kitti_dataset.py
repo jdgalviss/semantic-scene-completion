@@ -176,8 +176,10 @@ class SemanticKITTIDataset(Dataset):
             flip_mode = 0 # set 0 with no augment
             rot_zyx=[0,0,0]
         completion_collection['flip_mode'] = flip_mode
-        # flip_mode = 1
+        # flip_mode = 0
         # rot_zyx=[10,5,1]
+        # rot_zyx=[0,0,0]
+
 
         # read raw data and unpack (if necessary)
         for typ in self.files.keys():
@@ -494,8 +496,8 @@ def Merge(tbl):
     complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
     invalid_locs = torch.where(complet_labels > 255)
     complet_labels[invalid_locs] = 255
-    # complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-    complet_occupancy = torch.where(complet_labels > 0  , one, zero)
+    complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+    # complet_occupancy = torch.where(complet_labels > 0  , one, zero)
 
     
     # complet_labels_128 = F.max_pool3d(complet_labels.float(), kernel_size=2, stride=2).int()
@@ -503,8 +505,8 @@ def Merge(tbl):
     complet_labels_128[0, invalid_locs_128[:, 0], invalid_locs_128[:, 1], invalid_locs_128[:, 2]] = 255
     invalid_locs = torch.where(complet_labels_128 > 255)
     complet_labels_128[invalid_locs] = 255
-    complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
-    # complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+    # complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
+    complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
 
 
     # complet_labels_64 = F.max_pool3d(complet_labels_128.float(), kernel_size=2, stride=2).int()
@@ -512,8 +514,8 @@ def Merge(tbl):
     complet_labels_64[0, invalid_locs_64[:, 0], invalid_locs_64[:, 1], invalid_locs_64[:, 2]] = 255
     invalid_locs = torch.where(complet_labels_64 > 255)
     complet_labels_64[invalid_locs] = 255
-    complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
-    # complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+    # complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
+    complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
 
 
 

@@ -99,7 +99,7 @@ def main():
     pytorch_total_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("Total params: ", pytorch_total_params)
     print("Total trainable params: ", pytorch_total_trainable_params)
-    for epoch in range(training_epoch, training_epoch+int(config.TRAIN.MAX_EPOCHS)):
+    for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         # ============== Evaluation ==============
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL != "256":
             model.eval()
@@ -232,7 +232,7 @@ def main():
                 continue
             consecutive_fails = 0
             total_loss: torch.Tensor = 0.0
-            total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT 
+            total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT # + losses["gen_64"]*config.MODEL.GEN_64_WEIGHT + losses["semantic2D_64"]*config.MODEL.SEMANTIC2D_64_WEIGHT
             if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
                 total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
             if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
@@ -240,7 +240,6 @@ def main():
             if config.GENERAL.LEVEL == "FULL":
                 total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
             # Loss backpropagation, optimizer & scheduler step
-
             if torch.is_tensor(total_loss):
                 # Log memory
                 info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
@@ -260,7 +259,7 @@ def main():
                         train_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
                     elif "64" in k:
                         train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
-
+                        
                 # log_msg += "total_loss: {:.4f}".format(total_loss)
                 log_msg["total_loss"] = total_loss.item()
                 # print(log_msg, end="\r")
@@ -291,7 +290,7 @@ def main():
                 
                 # Forward pass through model
                 # try:
-                losses, _ = model(complet_inputs, compl_labelweights)
+                losses, _ = model(complet_inputs, compl_labelweights, is_train_mod=False)
                 # except Exception as e:
                 #     print(e, "Error in val forward pass: ", iteration)
                 #     del complet_inputs
