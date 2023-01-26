@@ -57,6 +57,7 @@ def unpack(compressed):
 class SemanticKITTIDataset(Dataset):
     def __init__(self, config, split="train", augment=False, do_overfit=False, num_samples_overfit=1):
         """ Load data from given dataset directory. """
+        self.split = split
         self.config = config
         self.augment = augment
         self.files = {}
@@ -129,7 +130,6 @@ class SemanticKITTIDataset(Dataset):
 
         # sanity check:
         for k, v in self.files.items():
-            # print(k, len(v))
             assert (len(v) == self.num_files)
         if split == 'train':
             seg_num_per_class = np.array(config.TRAIN.SEG_NUM_PER_CLASS)
@@ -206,27 +206,39 @@ class SemanticKITTIDataset(Dataset):
             
             # turn in actual voxel grid representation.
             completion_collection[typ] = scan_data
+        
+        if self.split != 'test':
+            '''Load Segmentation Data'''
+            seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
+            seg_label_name = self.seg_path + self.files['label'][t][self.files['label'][t].find('sequences'):].replace('voxels','labels')
 
+            scan.open_scan(seg_point_name)
+            scan.open_label(seg_label_name)
+            remissions = scan.remissions
+            xyz = scan.points
+            label = scan.sem_label
+            label = self.seg_remap_lut[label]
 
-        '''Load Segmentation Data'''
-        seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
-        seg_label_name = self.seg_path + self.files['label'][t][self.files['label'][t].find('sequences'):].replace('voxels','labels')
+            if self.config.SEGMENTATION.USE_COORDS:
+                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+            else:
+                feature = remissions.reshape(-1, 1)
 
-        scan.open_scan(seg_point_name)
-        scan.open_label(seg_label_name)
-        remissions = scan.remissions
-        xyz = scan.points
-        label = scan.sem_label
-        label = self.seg_remap_lut[label]
-
-        if self.config.SEGMENTATION.USE_COORDS:
-            feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+            # Add noise augmentation to input data
+            if self.augment:
+                feature += np.random.randn(*feature.shape)*self.config.TRAIN.NOISE_LEVEL
         else:
-            feature = remissions.reshape(-1, 1)
+            seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
+            scan.open_scan(seg_point_name)
+            
+            xyz = scan.points
+            remissions = scan.remissions
+            if self.config.SEGMENTATION.USE_COORDS:
+                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+            else:
+                feature = remissions.reshape(-1, 1)
+            label = None
 
-        # Add noise augmentation to input data
-        if self.augment:
-            feature += np.random.randn(*feature.shape)*self.config.TRAIN.NOISE_LEVEL
 
         '''Process Segmentation Data'''
         segmentation_collection = {}
@@ -246,12 +258,12 @@ class SemanticKITTIDataset(Dataset):
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
 
 
-        # Apply Augmentation to input data
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
         coords = coords[:, [2, 1, 0]]
         coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
         coords = coords.long()
 
+        # Apply Augmentation to input data
         # Create dense voxel grid of features so we can perform augmentation TODO(juan.galvis): this is slow.
         if self.augment:
             feature_voxels = torch.zeros((256,256,32)) # TODO (juan.galvis): Hardcoded
@@ -303,6 +315,8 @@ class SemanticKITTIDataset(Dataset):
             'num_points_per_voxel': num_points_per_voxel,
             'features': features,
         })
+        # if self.split == "test":
+        #     return aliment_collection
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
     def process_seg_data(self, xyz, label, feature):
@@ -322,11 +336,14 @@ class SemanticKITTIDataset(Dataset):
         idxs = (coords.min(1) >= 0) * (coords.max(1) < self.config.SEGMENTATION.FULL_SCALE[1])
         coords = coords[idxs]
         feature = feature[idxs]
-        label = label[idxs]
+        if label is not None:
+            label = label[idxs]
+            label = torch.Tensor(label)
+        else:
+            label = None
 
         coords = torch.Tensor(coords).long()
         feature = torch.Tensor(feature)
-        label = torch.Tensor(label)
 
         return coords, label, feature, idxs
 
@@ -543,4 +560,40 @@ def Merge(tbl):
     # seg_inputs = None
     # completion_collection = None
     # filenames = None
-    return None, complet_inputs, None, filenames
+    return filenames, complet_inputs, None, filenames
+
+def MergeTest(tbl):
+    complet_coords = []
+    voxel_centers = []
+    complet_invoxel_features = []
+    complet_features = []
+    filenames = []
+    offset = 0
+    input_vx = []
+    for idx, example in enumerate(tbl):
+        filename, completion_collection, aliment_collection, _ = example
+        '''File Name'''
+        filenames.append(filename)
+
+
+        '''Completion'''
+        complet_coord = aliment_collection['coords']
+        complet_coords.append(torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1))
+
+        input_vx.append(completion_collection['input'])
+
+        voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
+        complet_invoxel_feature = aliment_collection['voxels']
+        complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
+
+        complet_features.append(aliment_collection['features'])
+        complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
+    complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
+    complet_features = torch.cat(complet_features, 0)
+    complet_coords = torch.cat(complet_coords, 0)
+
+    complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
+    complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
+    complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+    # filenames = None
+    return filenames, complet_inputs, None, filenames
