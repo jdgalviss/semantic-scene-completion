@@ -5,3 +5,4 @@ experiments
 kaolin
 *bkup.py
 semantic-scene-completion/output
+semantic-scene-completion/semantic-kitti-api/

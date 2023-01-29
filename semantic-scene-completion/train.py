@@ -18,6 +18,7 @@ import nvidia_smi
 
 
 device = torch.device("cuda:0")
+shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128, 128, 16]), "64": torch.Size([1, 1, 64, 64, 8])}
 
 def main():
     re_seed(0)
@@ -101,13 +102,22 @@ def main():
     print("Total trainable params: ", pytorch_total_trainable_params)
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         # ============== Evaluation ==============
+        if epoch>=steps_schedule[0]:
+            if epoch>=steps_schedule[1]:
+                if epoch>=steps_schedule[2]:
+                    config.GENERAL.LEVEL = "FULL"
+                else:
+                    config.GENERAL.LEVEL = "256"
+            else:
+                config.GENERAL.LEVEL = "128"
+                
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL != "256":
             model.eval()
             with torch.no_grad():
                 for dataloader_name, dataloader in val_dataloaders.items():
-                    seg_evaluators = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),
-                                      "128": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),  
-                                      "256": iouEval(config.SEGMENTATION.NUM_CLASSES, [0]),}
+                    seg_evaluators = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
+                                      "128": iouEval(config.SEGMENTATION.NUM_CLASSES, []),  
+                                      "256": iouEval(config.SEGMENTATION.NUM_CLASSES, []),}
 
                     occ_evaluators = {"64": iouEval(2, []),
                                         "128": iouEval(2, []),  
@@ -117,9 +127,9 @@ def main():
                     if config.GENERAL.LEVEL == "64":
                         levels = ["64"]
                     elif config.GENERAL.LEVEL == "128":
-                        levels = ["64", "128"]
+                        levels = ["128"] # ["64", "128"]
                     elif config.GENERAL.LEVEL == "FULL":
-                        levels = ["64", "128", "256"]
+                        levels = ["256"] #["64", "128", "256"]
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
                         # try:
@@ -148,32 +158,32 @@ def main():
                                 semantic_labels = semantic_labels[semantic_gt!=255]
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
                             else:
-                                occupancy_prediction = results['occupancy_{}'.format(level)]
-                                occupancy_coordinates = occupancy_prediction.C.long()
-                                occupancy_coordinates[:, 1:] = occupancy_coordinates[:, 1:] // occupancy_prediction.tensor_stride[0]
-                                occupancy_gt = get_sparse_values(occupancy_gt.unsqueeze(0), occupancy_coordinates)
-                                occupancy_prediction = occupancy_prediction.F > 0.5
-                                occupancy_gt = occupancy_gt[:,0].to('cpu').data.numpy()
-                                occupancy_prediction = occupancy_prediction[:,0].to('cpu').data.numpy()
-                                occ_evaluators[level].addBatch(occupancy_prediction.astype(int), occupancy_gt.astype(int))
-
-                                prediction = results['semantic_prediction_{}'.format(level)]
-                                predicted_coordinates = prediction.C.long()
-                                predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
-                                semantic_gt = get_sparse_values(semantic_gt.unsqueeze(0), predicted_coordinates)
-                                semantic_labels = semantic_labels.F
-                                torch.cuda.empty_cache()
-                                semantic_gt = semantic_gt[:,0].to('cpu').data.numpy()
-                                semantic_labels = semantic_labels[:,0].to('cpu').data.numpy()
-                                seg_labels_gt = semantic_gt[semantic_gt!=255]
+                                min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+                                shape = shapes[level]
+                                # prediction = results['semantic_prediction_{}'.format(level)]
+                                semantic_labels, _, _ = semantic_labels.dense(shape, min_coordinate=min_coordinate)
+                                semantic_labels = np.uint16(semantic_labels.to("cpu")[0,0].detach().cpu().numpy()).flatten()
+                                semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
                                 semantic_labels = semantic_labels[semantic_gt!=255]
-                                seg_evaluators[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
+                                
+                                
+                                occupancy_prediction = results['occupancy_{}'.format(level)]
+                                occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
+                                occupancy_prediction = np.uint16(occupancy_prediction.to("cpu")[0,0].detach().cpu().numpy()).flatten()
+                                occupancy_gt = np.uint16(occupancy_gt.detach().cpu().numpy()).flatten()
+                                occupancy_gt = occupancy_gt[semantic_gt!=255]
+                                occupancy_prediction = occupancy_prediction[semantic_gt!=255]
+                                semantic_gt = semantic_gt[semantic_gt!=255]
+                                torch.cuda.empty_cache()
+                                occ_evaluators[level].addBatch(occupancy_prediction.astype(int), occupancy_gt.astype(int))
+                                seg_evaluators[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
                         # del complet_inputs, results, semantic_labels, semantic_gt, prediction, predicted_coordinates
                     for level in levels:
                         print("\nEvaluating level: {}".format(level))
                         occ_miou, occ_iou = occ_evaluators[level].getIoU()
-                        m_jaccard, class_jaccard = seg_evaluators[level].getIoU()
-                        ignore = []
+                        _, class_jaccard = seg_evaluators[level].getIoU()
+                        m_jaccard = class_jaccard[1:].mean()
+                        ignore = [0]
                         for i, jacc in enumerate(class_jaccard):
                             if i not in ignore:
                                 writers[dataloader_name].add_scalar('eval-{}/{}'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
@@ -186,14 +196,6 @@ def main():
                     torch.cuda.empty_cache()
 
         # # ============== Training ==============
-        if epoch>=steps_schedule[0]:
-            if epoch>=steps_schedule[1]:
-                if epoch>=steps_schedule[2]:
-                    config.GENERAL.LEVEL = "FULL"
-                else:
-                    config.GENERAL.LEVEL = "256"
-            else:
-                config.GENERAL.LEVEL = "128"
         
         '''Adjust learning rate'''
         lr = max(config.SOLVER.BASE_LR * (config.SOLVER.LR_DECAY** (epoch // config.SOLVER.DECAY_STEP)), config.SOLVER.LR_CLIP)

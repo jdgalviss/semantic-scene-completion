@@ -1,7 +1,7 @@
 import torch
 from configs import config
 import argparse
-from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest
+from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 import numpy as np
 import time
 from tqdm import tqdm
@@ -23,11 +23,11 @@ shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128,
 
 def main():
     re_seed(0)
-    test_dataset = SemanticKITTIDataset(config, "test",do_overfit=False, augment=False)
+    test_dataset = SemanticKITTIDataset(config, "valid",do_overfit=False, augment=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=config.TRAIN.BATCH_SIZE,
-        collate_fn=MergeTest,
+        collate_fn=Merge,
         num_workers=config.TRAIN.NUM_WORKERS,
         pin_memory=True,
         shuffle=False,
@@ -37,7 +37,7 @@ def main():
 
     model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES)
 
-    ckpt_path = "experiments/177/modelFULL-90.pth" #config.GENERAL.CHECKPOINT_PATH
+    ckpt_path = "experiments/173/modelFULL-60.pth" #config.GENERAL.CHECKPOINT_PATH
 
     try:
         model.load_state_dict(torch.load(ckpt_path))
@@ -85,6 +85,8 @@ def main():
             occupancy_prediction = results['occupancy_{}'.format(level)]
             semantic_prediction = results['semantic_labels_{}'.format(level)]
 
+            
+
             shape = shapes[level]
             min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
 
@@ -98,6 +100,13 @@ def main():
                 occupancy_prediction = np.uint16(occupancy_prediction[0,0].detach().cpu().numpy())
                 semantic_prediction, _, _ = semantic_prediction.dense(shape, min_coordinate=min_coordinate)
                 semantic_prediction = np.uint16(semantic_prediction.to("cpu")[0,0].detach().cpu().numpy())
+
+            # Override prediction 
+            # print("semantic_prediction.shape: ", semantic_prediction.shape)
+            # gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
+            # semantic_prediction = np.uint16(gt_labels.detach().cpu().numpy())
+            # semantic_prediction[semantic_prediction==255] = 0
+            # print("gt.shape: ", semantic_prediction.shape)
             # remap
             # TODO: Do Something with the results -> save, etc
             maxkey = max(remapdict_inv.keys())
@@ -105,7 +114,16 @@ def main():
             remap_lut[list(remapdict_inv.keys())] = list(remapdict_inv.values())
             semantic_prediction = remap_lut[semantic_prediction]
             semantic_prediction = np.uint16(semantic_prediction)
-            filename = "output/sequences/{}/{}.label".format(filenames[0][0],filenames[0][1])
+            try:
+                filename = "output/valid/sequences/{}/predictions/{}.label".format(filenames[0][0],filenames[0][1])
+            except:
+                new_dir = "output/valid/sequences/{}/predictions".format(filenames[0][0])
+                print("creating file: ", new_dir)
+                try:
+                    os.mkdir(new_dir)
+                except OSError as error:
+                    print(error)  
+                continue
             semantic_prediction.astype('int16').tofile(filename)
             log_msg = {"sequence": filenames[0][0], "sample": filenames[0][1]}
             pbar.set_postfix(log_msg)

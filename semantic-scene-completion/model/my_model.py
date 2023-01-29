@@ -139,6 +139,7 @@ class MyModel(nn.Module):
 
     def compute_semantic_256_loss(self, prediction: Me.SparseTensor, ground_truth: torch.Tensor, weights: torch.Tensor) -> Tuple[Dict, Dict]:
         prediction = mask_invalid_sparse_voxels(prediction)
+        
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
@@ -468,7 +469,7 @@ class MyModel(nn.Module):
         results["occupancy_256"] = occupancy_prediction
         # level-FULL
         if config.GENERAL.LEVEL == "FULL":
-            occupancy_mask = (occupancy_prediction.F > 0.5).squeeze()
+            occupancy_mask = (occupancy_prediction.F > 0.5).squeeze() # TODO: Find a better threshold
             prediction_pruned = Me.MinkowskiPruning()(feature_prediction, occupancy_mask)
             # print("prediction_pruned: ", prediction_pruned.shape)
 

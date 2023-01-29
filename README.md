@@ -8,6 +8,10 @@ jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
 jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --no-browser
 ```
 
+2. Evaluate Semantic-kitti
+./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/valid --split valid
+./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/gt --split valid
+
 curl -sL https://deb.nodesource.com/setup_18.x | bash
 # and install node 
 apt-get install nodejs
