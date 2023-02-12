@@ -198,11 +198,12 @@ class MyModel(nn.Module):
             occupancy_prediction = self.occupancy_256_head(feature_prediction)
             # print("occupancy_prediction: ", occupancy_prediction.shape)
             occupancy_ground_truth = collect(targets, "complet_occupancy_256")
+            valid = collect(targets, "complet_valid")
             # print("occupancy_gt: ", occupancy_ground_truth.shape)
             # print("occupancy_gt values:", torch.unique(occupancy_ground_truth))
 
             occupancy_loss, occupancy_result = self.compute_occupancy_256_loss(occupancy_prediction,
-                                                                               occupancy_ground_truth, weights)
+                                                                               occupancy_ground_truth, weights, valid)
 
             hierarchy_losses.update(occupancy_loss)
             # hierarchy_results.update(occupancy_result)
@@ -217,7 +218,7 @@ class MyModel(nn.Module):
 
         return hierarchy_losses, hierarchy_results, feature_prediction
 
-    def compute_occupancy_256_loss(self, prediction, ground_truth, weights) -> Tuple[Dict, Dict]:
+    def compute_occupancy_256_loss(self, prediction, ground_truth, weights, valid) -> Tuple[Dict, Dict]:
         prediction = mask_invalid_sparse_voxels(prediction)
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
@@ -226,18 +227,19 @@ class MyModel(nn.Module):
         # Get sparse GT values from dense tensor
         # print("ground_truth: ", torch.sum(ground_truth))
         ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
+        valid = get_sparse_values(valid.unsqueeze(0), predicted_coordinates)
+        
         # print("prediction.F: ", prediction.F.shape)
         # print("ground_truth_values: ", ground_truth_values.shape)
         # Occupancy weights
         occupancy_weights = torch.ones_like(ground_truth)
         occupancy_weights[ground_truth == 0] = torch.mean(weights[1:])/weights[0]
-        loss_mean = self.criterion_occupancy(prediction.F, ground_truth, pos_weight=occupancy_weights, reduction="mean")
-
-
-        # if len(loss) > 0:
-        #     loss_mean = loss.mean()
-        # else:
-        #     loss_mean = 0
+        loss = self.criterion_occupancy(prediction.F, ground_truth, pos_weight=occupancy_weights, reduction="none")
+        loss = torch.masked_select(loss, valid)
+        if len(loss) > 0:
+            loss_mean = loss.mean()
+        else:
+            loss_mean = 0
 
         prediction = Me.MinkowskiSigmoid()(prediction)
         # print("occupancy_prediction: ", prediction.shape)
@@ -246,13 +248,15 @@ class MyModel(nn.Module):
     def forward_128(self, predictions, targets, weights):
         hierarchy_losses = {}
         hierarchy_results = {}
+        occupancy_ground_truth = collect(targets, "complet_occupancy_128")
+        semantic_ground_truth = collect(targets, "complet_labels_128").long()
+        valid = semantic_ground_truth != 255
 
         # Compute occupancy loss
         occupancy_prediction: Me.SparseTensor = predictions[0]
         # print("\noccupancy_prediction: ", occupancy_prediction.shape)
         if occupancy_prediction is not None:
-            occupancy_ground_truth = collect(targets, "complet_occupancy_128")
-            occupancy_loss, _ = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth, weights)
+            occupancy_loss, _ = self.compute_occupancy_128_loss(occupancy_prediction, occupancy_ground_truth, weights, valid)
             hierarchy_losses.update(occupancy_loss)
             # hierarchy_results.update(occupancy_result)
         
@@ -260,7 +264,6 @@ class MyModel(nn.Module):
         semantic_prediction: Me.SparseTensor = predictions[1]
         # print("\nsemantic_prediction_128: ", semantic_prediction.shape)
         if semantic_prediction is not None:
-            semantic_ground_truth = collect(targets, "complet_labels_128").long()
             semantic_loss, _ = self.compute_semantic_128_loss(semantic_prediction, semantic_ground_truth, weights)
             hierarchy_losses.update(semantic_loss)
             # hierarchy_results.update(semantic_result)
@@ -268,18 +271,21 @@ class MyModel(nn.Module):
 
         return hierarchy_losses, hierarchy_results
 
-    def compute_occupancy_128_loss(self,prediction: Me.SparseTensor, ground_truth: torch.Tensor, weights: torch.Tensor):
+    def compute_occupancy_128_loss(self,prediction: Me.SparseTensor, ground_truth: torch.Tensor, weights: torch.Tensor, valid: torch.Tensor) -> Tuple[Dict, Dict]:
         prediction = mask_invalid_sparse_voxels(prediction)
         predicted_coordinates = prediction.C.long()
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
         # Get sparse GT values from dense tensor
         ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
+        valid = get_sparse_values(valid.unsqueeze(0), predicted_coordinates)
         
         # Occupancy weights
         occupancy_weights = torch.ones_like(ground_truth_values)
         occupancy_weights[ground_truth_values == 0] = torch.mean(weights[1:])/weights[0]
         loss = self.criterion_occupancy(prediction.F, ground_truth_values, pos_weight=occupancy_weights, reduction="none")
+        loss = torch.masked_select(loss, valid)
+
         if len(loss) > 0:
             loss_mean = loss.mean()
         else:
@@ -322,18 +328,19 @@ class MyModel(nn.Module):
     def forward_64(self, predictions, targets, valid_mask, weights) -> Tuple[Dict, Dict]:
         hierarchy_losses = {}
         hierarchy_results = {}
+        occupancy_ground_truth = collect(targets, "complet_occupancy_64")
+        semantic_ground_truth = collect(targets, "complet_labels_64")
 
         # Occupancy 64
         occupancy_prediction = predictions[0]
-        occupancy_ground_truth = collect(targets, "complet_occupancy_64")
+        valid = semantic_ground_truth != 255
         occupancy_loss, occupancy_result = self.compute_occupancy_64_loss(occupancy_prediction, occupancy_ground_truth,
-                                                                          valid_mask, weights)
+                                                                          valid_mask, weights, valid)
         hierarchy_losses.update(occupancy_loss)
         hierarchy_results.update(occupancy_result)
 
         # Semantic 64
         semantic_prediction = predictions[1]
-        semantic_ground_truth = collect(targets, "complet_labels_64")
         semantic_loss, semantic_result = self.compute_semantic_64_loss(semantic_prediction, semantic_ground_truth,
                                                                        valid_mask, weights)
         hierarchy_losses.update(semantic_loss)
@@ -342,13 +349,16 @@ class MyModel(nn.Module):
         return hierarchy_losses, hierarchy_results
 
     def compute_occupancy_64_loss(self, prediction: torch.Tensor, ground_truth: torch.Tensor,
-                                  mask: torch.Tensor, weights: torch.Tensor) -> Tuple[Dict, Dict]:
+                                  mask: torch.Tensor, weights: torch.Tensor, valid: torch.Tensor) -> Tuple[Dict, Dict]:
+        
         occupancy_weights = torch.ones_like(ground_truth)
         occupancy_weights[ground_truth == 0] = torch.mean(weights[1:])/weights[0]
+
+
         loss = self.criterion_occupancy(prediction[0], ground_truth, pos_weight=occupancy_weights, reduction="none")
 
         # Only consider loss within the camera frustum
-        loss = torch.masked_select(loss, mask)
+        loss = torch.masked_select(loss, valid)
 
         if len(loss) > 0:
             loss_mean = loss.mean()

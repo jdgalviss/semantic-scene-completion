@@ -142,7 +142,7 @@ class SemanticKITTIDataset(Dataset):
             # self.compl_labelweights = np.ones_like(self.compl_labelweights)
             
             
-            self.compl_labelweights =1.0*self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
+            self.compl_labelweights =self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
 
 
             # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
@@ -533,13 +533,13 @@ def Merge(tbl):
     complet_labels_64[invalid_locs] = 255
     complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
     # complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-
+    complet_valid = complet_labels != 255
 
 
 
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
-    complet_inputs.add_field("complet_invalid", complet_invalid)
+    complet_inputs.add_field("complet_valid", complet_valid)
     complet_inputs.add_field("complet_labels_256", complet_labels)
     complet_inputs.add_field("complet_occupancy_256", complet_occupancy)
     complet_inputs.add_field("complet_labels_128", complet_labels_128)
