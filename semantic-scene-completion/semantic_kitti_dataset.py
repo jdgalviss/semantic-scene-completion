@@ -142,7 +142,7 @@ class SemanticKITTIDataset(Dataset):
             # self.compl_labelweights = np.ones_like(self.compl_labelweights)
             
             
-            self.compl_labelweights =self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
+            self.compl_labelweights = 1.0*self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
 
 
             # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
