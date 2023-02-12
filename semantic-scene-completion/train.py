@@ -16,7 +16,7 @@ from evaluation import iouEval
 from model import get_sparse_values
 import nvidia_smi
 
-
+epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
 shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128, 128, 16]), "64": torch.Size([1, 1, 64, 64, 8])}
 
@@ -106,6 +106,7 @@ def main():
             if epoch>=steps_schedule[1]:
                 if epoch>=steps_schedule[2]:
                     config.GENERAL.LEVEL = "FULL"
+                    config.TRAIN.EVAL_PERIOD = 2
                 else:
                     config.GENERAL.LEVEL = "256"
             else:
@@ -132,13 +133,13 @@ def main():
                         levels = ["256"] #["64", "128", "256"]
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
-                        # try:
-                        results = model.inference(complet_inputs)
-                        # except Exception as e:
-                            # print(e, "Error in inference: ", iteration)
-                            # del complet_inputs
-                            # torch.cuda.empty_cache()
-                            # continue
+                        try:
+                            results = model.inference(complet_inputs)
+                        except Exception as e:
+                            print(e, "Error in inference: ", iteration)
+                            del complet_inputs
+                            torch.cuda.empty_cache()
+                            continue
                         # Semantic Eval
 
                         for level in levels:
@@ -174,10 +175,11 @@ def main():
                                 occupancy_gt = occupancy_gt[semantic_gt!=255]
                                 occupancy_prediction = occupancy_prediction[semantic_gt!=255]
                                 semantic_gt = semantic_gt[semantic_gt!=255]
-                                torch.cuda.empty_cache()
                                 occ_evaluators[level].addBatch(occupancy_prediction.astype(int), occupancy_gt.astype(int))
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
-                        # del complet_inputs, results, semantic_labels, semantic_gt, prediction, predicted_coordinates
+                        del batch, complet_inputs, results
+                        torch.cuda.empty_cache()
+
                     for level in levels:
                         print("\nEvaluating level: {}".format(level))
                         occ_miou, occ_iou = occ_evaluators[level].getIoU()
@@ -191,8 +193,24 @@ def main():
                                     i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
                         print('\n{} point avg class IoU: {}'.format(dataloader_name,m_jaccard*100))
                         print('{} point avg occupancy IoU: {}'.format(dataloader_name,occ_miou*100))
+                        
+                        # compute remaining metrics.
+                        conf = seg_evaluators[level].get_confusion()
+                        precision = np.sum(conf[1:,1:]) / (np.sum(conf[1:,:]) + epsilon)
+                        recall = np.sum(conf[1:,1:]) / (np.sum(conf[:,1:]) + epsilon)
+                        acc_cmpltn = (np.sum(conf[1:, 1:])) / (np.sum(conf) - conf[0,0])
+
+                        print("Precision =\t" + str(np.round(precision * 100, 2)) + '\n' +
+                                "Recall =\t" + str(np.round(recall * 100, 2)) + '\n' +
+                                "IoU Cmpltn =\t" + str(np.round(acc_cmpltn * 100, 2)) + '\n')   
+                        
                         writers[dataloader_name].add_scalar('eval-{}/mIoU'.format(level), m_jaccard*100, epoch)
                         writers[dataloader_name].add_scalar('eval-{}/occ_mIoU'.format(level), occ_miou*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/precision'.format(level), precision*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/recall'.format(level), recall*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn'.format(level), acc_cmpltn*100, epoch)
+
+                    
                     torch.cuda.empty_cache()
 
         # # ============== Training ==============
@@ -208,7 +226,7 @@ def main():
         # for i, batch in enumerate(train_dataloader):
         pbar = tqdm(train_dataloader)
         consecutive_fails = 0
-        val_dataloader_iterator = iter(val_dataloader)
+        # val_dataloader_iterator = iter(val_dataloader) # VAL: Comment for no val
         for i, batch in enumerate(pbar):
             model.train()
             optimizer.zero_grad()
@@ -245,7 +263,7 @@ def main():
             if torch.is_tensor(total_loss):
                 # Log memory
                 info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-                train_writer.add_scalar('memory/free', info.free, iteration)
+                train_writer.add_scalar('memory/free', info.free, float(epoch) + float(iteration)/float(len(val_dataloader)))
 
                 total_loss.backward()
                 optimizer.step()
@@ -266,8 +284,10 @@ def main():
                 log_msg["total_loss"] = total_loss.item()
                 # print(log_msg, end="\r")
                 pbar.set_postfix(log_msg)
-
+            
             train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
+            del batch, complet_inputs, total_loss, losses
+            
             
             
 
@@ -277,51 +297,52 @@ def main():
             torch.cuda.empty_cache()
             # del batch, complet_inputs
 
-            # ============== Validation ==============
-            model.eval()
-            with torch.no_grad():
-                try:
-                    val_batch = next(val_dataloader_iterator)
-                except StopIteration:
-                    val_dataloader_iterator = iter(val_dataloader)
-                    val_batch = next(val_dataloader_iterator)
-                # Get tensors from batch
-                _, complet_inputs, _, _ = val_batch
-                # seg_labelweights = torch.Tensor(train_dataset.seg_labelweights).cuda()
-                compl_labelweights = torch.Tensor(train_dataset.compl_labelweights).cuda()
+            # # ============== Validation ==============
+            # model.eval()
+            # with torch.no_grad():
+            #     try:
+            #         val_batch = next(val_dataloader_iterator)
+            #     except StopIteration:
+            #         val_dataloader_iterator = iter(val_dataloader)
+            #         val_batch = next(val_dataloader_iterator)
+            #     # Get tensors from batch
+            #     _, complet_inputs, _, _ = val_batch
+            #     # seg_labelweights = torch.Tensor(train_dataset.seg_labelweights).cuda()
+            #     compl_labelweights = torch.Tensor(train_dataset.compl_labelweights).cuda()
                 
-                # Forward pass through model
-                # try:
-                losses, _ = model(complet_inputs, compl_labelweights, is_train_mod=False)
-                # except Exception as e:
-                #     print(e, "Error in val forward pass: ", iteration)
-                #     del complet_inputs
-                #     torch.cuda.empty_cache()
-                #     continue
-                total_loss: torch.Tensor = 0.0
-                total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT 
-                if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
-                if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
-                if config.GENERAL.LEVEL == "FULL":
-                    total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
-                if torch.is_tensor(total_loss):
-                    for k, v in losses.items():
-                        # log_msg[k] = v.item()
-                        # log_msg += "{}: {:.4f}, ".format(k, v)
-                        if "256" in k:
-                            eval_writer.add_scalar('train_256/'+k, v.detach().cpu(), iteration)
-                        elif "128" in k:
-                            eval_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
-                        elif "64" in k:
-                            eval_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
+            #     # Forward pass through model
+            #     try:
+            #         losses, _ = model(complet_inputs, compl_labelweights, is_train_mod=False)
+            #     except Exception as e:
+            #         print(e, "Error in val forward pass: ", iteration)
+            #         del complet_inputs, val_batch
+            #         torch.cuda.empty_cache()
+            #         continue
+            #     total_loss: torch.Tensor = 0.0
+            #     total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT 
+            #     if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+            #         total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
+            #     if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+            #         total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
+            #     if config.GENERAL.LEVEL == "FULL":
+            #         total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
+            #     if torch.is_tensor(total_loss):
+            #         for k, v in losses.items():
+            #             # log_msg[k] = v.item()
+            #             # log_msg += "{}: {:.4f}, ".format(k, v)
+            #             if "256" in k:
+            #                 eval_writer.add_scalar('train_256/'+k, v.detach().cpu(), iteration)
+            #             elif "128" in k:
+            #                 eval_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
+            #             elif "64" in k:
+            #                 eval_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
 
-                eval_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
+            #     eval_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
+            #     del val_batch, complet_inputs, total_loss
             
-            # Log memory
-            info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-            eval_writer.add_scalar('memory/free', info.free, iteration)
+            # # Log memory
+            # info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+            # eval_writer.add_scalar('memory/free', info.free, float(epoch) + float(iteration)/float(len(val_dataloader)))
 
             iteration += 1
             torch.cuda.empty_cache()
@@ -329,8 +350,8 @@ def main():
         eval_writer.add_scalar('epoch', epoch, iteration)
 
         # Save checkpoint
-        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0:
-            torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
+        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
+            torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch+1))
 
             
     torch.save(model.state_dict(), experiment_dir + "/model.pth")
