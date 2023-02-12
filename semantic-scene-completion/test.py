@@ -37,7 +37,7 @@ def main():
 
     model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES)
 
-    ckpt_path = "experiments/173/modelFULL-60.pth" #config.GENERAL.CHECKPOINT_PATH
+    ckpt_path = "experiments/194/modelFULL-57.pth" #config.GENERAL.CHECKPOINT_PATH
 
     try:
         model.load_state_dict(torch.load(ckpt_path))
@@ -103,9 +103,9 @@ def main():
 
             # Override prediction 
             # print("semantic_prediction.shape: ", semantic_prediction.shape)
-            # gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
-            # semantic_prediction = np.uint16(gt_labels.detach().cpu().numpy())
-            # semantic_prediction[semantic_prediction==255] = 0
+            gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
+            gt_labels = np.uint16(gt_labels.detach().cpu().numpy())
+            semantic_prediction[gt_labels==255] = 0
             # print("gt.shape: ", semantic_prediction.shape)
             # remap
             # TODO: Do Something with the results -> save, etc
