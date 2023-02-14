@@ -13,7 +13,7 @@ cython
 pyexr
 jupyterlab
 k3d
-tensorboard
+tensorboard==2.11.0
 tensorboardX
 imageio
 nvidia-ml-py3

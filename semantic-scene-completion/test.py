@@ -26,7 +26,7 @@ def main():
     test_dataset = SemanticKITTIDataset(config, "valid",do_overfit=False, augment=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
-        batch_size=config.TRAIN.BATCH_SIZE,
+        batch_size=1,
         collate_fn=Merge,
         num_workers=config.TRAIN.NUM_WORKERS,
         pin_memory=True,
