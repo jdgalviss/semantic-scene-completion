@@ -454,7 +454,8 @@ def Merge(tbl):
 
         '''Completion'''
         complet_coord = aliment_collection['coords']
-        complet_coords.append(torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1))
+        complet_coord = torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1)
+        complet_coords.append(complet_coord)
 
         input_vx.append(completion_collection['input'])
         complet_labels.append(completion_collection['label'])
@@ -504,7 +505,6 @@ def Merge(tbl):
     invalid_locs = torch.nonzero(complet_invalid[0])
     invalid_locs_128 = torch.nonzero(complet_invalid_128[0])
     invalid_locs_64 = torch.nonzero(complet_invalid_64[0])
-
     
     # input_vx = torch.cat(input_vx, 0)    
     # input_coords = torch.nonzero(input_vx)

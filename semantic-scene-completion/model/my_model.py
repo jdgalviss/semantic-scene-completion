@@ -47,6 +47,7 @@ class MyModel(nn.Module):
         self._is_train_mod = is_train_mod
         # Put coordinates in the right order
         complet_coords = collect(targets, "complet_coords").squeeze()
+        
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
         complet_features = collect(targets, "complet_features")
@@ -55,7 +56,7 @@ class MyModel(nn.Module):
         complet_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
                             coordinates=complet_coords.int().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
-        # print("sparse_coords: ",sparse_coords.shape)
+        # print("sparse_coords: ",complet_coords.shape)
         # complet_invalid = collect(targets,"complet_invalid")
         # complet_valid = torch.logical_not(complet_invalid)
         # complet_valid = F.max_pool3d(complet_invalid.float(), kernel_size=2, stride=4).bool()
@@ -83,9 +84,10 @@ class MyModel(nn.Module):
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
 
         # Forward pass through model
-        unet_output = self.model(complet_coords, batch_size=1, valid_mask=complet_valid)
+
+        unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid)
         predictions = unet_output.data
-        
+
         losses = {}
         results = {}
         
@@ -145,7 +147,7 @@ class MyModel(nn.Module):
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
 
         # Get sparse GT values from dense tensor
-        ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
+        ground_truth = get_sparse_values(ground_truth.unsqueeze(1), predicted_coordinates)
         # print("semantic_ground_truth values_256: ", ground_truth_values.shape)
         # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
 
@@ -226,8 +228,8 @@ class MyModel(nn.Module):
 
         # Get sparse GT values from dense tensor
         # print("ground_truth: ", torch.sum(ground_truth))
-        ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
-        valid = get_sparse_values(valid.unsqueeze(0), predicted_coordinates)
+        ground_truth = get_sparse_values(ground_truth.unsqueeze(1), predicted_coordinates)
+        valid = get_sparse_values(valid.unsqueeze(1), predicted_coordinates)
         
         # print("prediction.F: ", prediction.F.shape)
         # print("ground_truth_values: ", ground_truth_values.shape)
@@ -277,13 +279,12 @@ class MyModel(nn.Module):
         # predicted_coordinates[:, 1:] = torch.div(predicted_coordinates[:, 1:], prediction.tensor_stride[0], rounding_mode="floor")
         predicted_coordinates[:, 1:] = predicted_coordinates[:, 1:] // prediction.tensor_stride[0]
         # Get sparse GT values from dense tensor
-        ground_truth_values = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
-        valid = get_sparse_values(valid.unsqueeze(0), predicted_coordinates)
-        
+        ground_truth_values = get_sparse_values(ground_truth.unsqueeze(1), predicted_coordinates)
+        valid = get_sparse_values(valid.unsqueeze(1), predicted_coordinates)
         # Occupancy weights
-        occupancy_weights = torch.ones_like(ground_truth_values)
-        occupancy_weights[ground_truth_values == 0] = torch.mean(weights[1:])/weights[0]
-        loss = self.criterion_occupancy(prediction.F, ground_truth_values, pos_weight=occupancy_weights, reduction="none")
+        # occupancy_weights = torch.ones_like(ground_truth_values)
+        # occupancy_weights[ground_truth_values == 0] = torch.mean(weights[1:])/weights[0]
+        loss = self.criterion_occupancy(prediction.F, ground_truth_values, reduction="none")
         loss = torch.masked_select(loss, valid)
 
         if len(loss) > 0:
@@ -304,7 +305,7 @@ class MyModel(nn.Module):
         # ground_truth = OneHot(ground_truth)
         # print("semantic_ground_truth values: ", ground_truth.shape)
 
-        ground_truth = get_sparse_values(ground_truth.unsqueeze(0), predicted_coordinates)
+        ground_truth = get_sparse_values(ground_truth.unsqueeze(1), predicted_coordinates)
         # print("semantic_ground_truth values_128: ", ground_truth_values.shape)
         # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
         # print("semantic_ground_truth values: ", torch.unique(ground_truth_values))
@@ -354,8 +355,7 @@ class MyModel(nn.Module):
         occupancy_weights = torch.ones_like(ground_truth)
         occupancy_weights[ground_truth == 0] = torch.mean(weights[1:])/weights[0]
 
-
-        loss = self.criterion_occupancy(prediction[0], ground_truth, pos_weight=occupancy_weights, reduction="none")
+        loss = self.criterion_occupancy(prediction[:,0,:,:], ground_truth, pos_weight=occupancy_weights, reduction="none")
 
         # Only consider loss within the camera frustum
         loss = torch.masked_select(loss, valid)
@@ -424,6 +424,8 @@ class MyModel(nn.Module):
     def inference(self, inputs):
         # Put coordinates in the right order
         complet_coords = collect(inputs,"complet_coords").squeeze()
+        batch_size = len(torch.unique(complet_coords[:,0]))
+
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
         complet_features = collect(inputs, "complet_features")
@@ -434,7 +436,7 @@ class MyModel(nn.Module):
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()
-        unet_output = self.model(sparse_coords, batch_size=1, valid_mask=complet_valid)
+        unet_output = self.model(sparse_coords, batch_size=batch_size, valid_mask=complet_valid)
         predictions = unet_output.data
         
         # level-64
@@ -447,7 +449,7 @@ class MyModel(nn.Module):
         results["occupancy_64"] = occupancy_probability
         semantic_prediction = predictions[2][1]
         semantic_prediction = torch.argmax(semantic_prediction, dim=1)
-        semantic_prediction[occupancy_probability[0] < 0.5] = 0
+        semantic_prediction[occupancy_probability[:,0,:,:,:] < 0.5] = 0
         results["semantic_labels_64"] = semantic_prediction
 
         # level-128
