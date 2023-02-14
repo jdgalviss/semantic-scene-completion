@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir torch==1.10.0+cu113 torchvision==0.11.0+cu113 tor
 
 # ## Install MinkowskiEngine
 ENV MAX_JOBS=4
-RUN /bin/bash -c "git clone https://github.com/xheon/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
+# RUN /bin/bash -c "git clone https://github.com/xheon/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
+RUN pip install -U git+https://github.com/NVIDIA/MinkowskiEngine -v --no-deps --install-option="--force_cuda" --install-option="--blas=openblas" 
 
 # SemanticKITTI API
 WORKDIR /usr/src/app

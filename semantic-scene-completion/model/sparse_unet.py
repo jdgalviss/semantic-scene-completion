@@ -198,6 +198,7 @@ class UNetBlockOuterSparse(UNetBlock):
         input_features = x.data
         # print("input_features shape:", input_features.shape)
         cm = input_features.coordinate_manager
+        # print("cm: ", cm[].shape)
         # key = input_features.coordinate_map_key
 
         # process each input feature type individually
@@ -205,9 +206,8 @@ class UNetBlockOuterSparse(UNetBlock):
         # process depth features
 
         encoded_input = self.encoder_input(input_features) if not self.verbose else self.forward_verbose(input_features, self.encoder_input)
-        # print("encoded_input: ", encoded_input.shape)
-        # encoded_input = Me.cat(encoded_input, encoded_features) unused!
 
+        # encoded_input = Me.cat(encoded_input, encoded_features) unused!
         # process input features
         encoded = self.encoder(encoded_input) if not self.verbose else self.forward_verbose(encoded_input, self.encoder)
         # print("encoded: ", encoded.shape)
@@ -373,7 +373,7 @@ class UNetBlockHybridSparse(UNetBlockOuter):
 
         # to dense at 64x64x64 with min_coordinate at 0,0,0
         shape = torch.Size([batch_size, self.num_inner_features, 64, 64, 8])
-        min_coordinate = torch.IntTensor([0, 0, 0]).to(encoded.device)
+        min_coordinate = torch.IntTensor([0, 0, 0])
 
         # mask out all voxels that are outside (<0 & >256)
         mask = (encoded.C[:, 1] < 256) & (encoded.C[:, 2] < 256) & (encoded.C[:, 3] < 32)

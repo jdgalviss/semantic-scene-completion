@@ -18,12 +18,14 @@ import nvidia_smi
 
 epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
-shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128, 128, 16]), "64": torch.Size([1, 1, 64, 64, 8])}
 
 def main():
     re_seed(0)
     nvidia_smi.nvmlInit()
     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+    # shapes = {"256": torch.Size([config.TRAIN.BATCH_SIZE, 1, 256, 256, 32]), "128": torch.Size([config.TRAIN.BATCH_SIZE, 1, 128, 128, 16]), "64": torch.Size([config.TRAIN.BATCH_SIZE, 1, 64, 64, 8])}
+    shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128, 128, 16]), "64": torch.Size([1, 1, 64, 64, 8])}
+
 
     train_dataset = SemanticKITTIDataset(config, "train",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT, augment=config.TRAIN.AUGMENT)
     if config.GENERAL.OVERFIT:
@@ -46,7 +48,7 @@ def main():
 
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=config.TRAIN.BATCH_SIZE,
+        batch_size=1,
         collate_fn=Merge,
         num_workers=config.TRAIN.NUM_WORKERS,
         pin_memory=True,
@@ -57,7 +59,7 @@ def main():
 
     trainval_dataloader = torch.utils.data.DataLoader(
         trainval_dataset,
-        batch_size=config.TRAIN.BATCH_SIZE,
+        batch_size=1,
         collate_fn=Merge,
         num_workers=config.TRAIN.NUM_WORKERS,
         pin_memory=True,
@@ -159,25 +161,25 @@ def main():
                                 semantic_labels = semantic_labels[semantic_gt!=255]
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
                             else:
-                                min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+                                min_coordinate = torch.IntTensor([0, 0, 0])
                                 shape = shapes[level]
                                 # prediction = results['semantic_prediction_{}'.format(level)]
                                 semantic_labels, _, _ = semantic_labels.dense(shape, min_coordinate=min_coordinate)
-                                semantic_labels = np.uint16(semantic_labels.to("cpu")[0,0].detach().cpu().numpy()).flatten()
+                                semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
                                 semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
                                 semantic_labels = semantic_labels[semantic_gt!=255]
                                 
                                 
                                 occupancy_prediction = results['occupancy_{}'.format(level)]
                                 occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
-                                occupancy_prediction = np.uint16(occupancy_prediction.to("cpu")[0,0].detach().cpu().numpy()).flatten()
+                                occupancy_prediction = np.uint16(occupancy_prediction.to("cpu").detach().cpu().numpy()).flatten()
                                 occupancy_gt = np.uint16(occupancy_gt.detach().cpu().numpy()).flatten()
                                 occupancy_gt = occupancy_gt[semantic_gt!=255]
                                 occupancy_prediction = occupancy_prediction[semantic_gt!=255]
                                 semantic_gt = semantic_gt[semantic_gt!=255]
                                 occ_evaluators[level].addBatch(occupancy_prediction.astype(int), occupancy_gt.astype(int))
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
-                        del batch, complet_inputs, results
+                        del batch, complet_inputs, results, semantic_gt, occupancy_gt, semantic_labels, occupancy_prediction
                         torch.cuda.empty_cache()
 
                     for level in levels:
@@ -219,7 +221,7 @@ def main():
         lr = max(config.SOLVER.BASE_LR * (config.SOLVER.LR_DECAY** (epoch // config.SOLVER.DECAY_STEP)), config.SOLVER.LR_CLIP)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-        train_writer.add_scalar('train/lr', lr, iteration)
+        train_writer.add_scalar('train/lr', lr, epoch)
     
 
         # with tqdm(total=len(train_dataloader)) as pbar:
@@ -230,7 +232,6 @@ def main():
         for i, batch in enumerate(pbar):
             model.train()
             optimizer.zero_grad()
-
             # print("batch len: ", len(batch))
 
             # Get tensors from batch
@@ -261,10 +262,6 @@ def main():
                 total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
             # Loss backpropagation, optimizer & scheduler step
             if torch.is_tensor(total_loss):
-                # Log memory
-                info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-                train_writer.add_scalar('memory/free', info.free, float(epoch) + float(iteration)/float(len(val_dataloader)))
-
                 total_loss.backward()
                 optimizer.step()
                 log_msg = {"epoch": epoch}
@@ -294,8 +291,7 @@ def main():
             
 
             # Minkowski Engine recommendation
-            torch.cuda.empty_cache()
-            # del batch, complet_inputs
+            # torch.cuda.empty_cache()
 
             # # ============== Validation ==============
             # model.eval()
@@ -348,6 +344,9 @@ def main():
             torch.cuda.empty_cache()
             # ========================================
         eval_writer.add_scalar('epoch', epoch, iteration)
+        # Log memory
+        info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+        train_writer.add_scalar('memory/free', info.free, epoch)
 
         # Save checkpoint
         if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
@@ -359,6 +358,11 @@ def main():
 
 
 if __name__ == '__main__':
+    # import debugpy
+    # print("waiting for debugger to attach...")
+    # debugpy.listen(('131.159.98.103', 5678))
+    # debugpy.wait_for_client()
+    # print("debugger attached")
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")
     parser.add_argument("--config-file", type=str, default="configs/ssc.yaml", required=False)
