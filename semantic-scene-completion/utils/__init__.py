@@ -3,3 +3,4 @@
 from .env import re_seed
 from .semantic_kitti_io import get_remap_lut, _read_label_SemKITTI, _read_invalid_SemKITTI, pack
 from .transforms import get_bev
+from .visualize import plot_3d_voxels
