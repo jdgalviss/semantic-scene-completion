@@ -93,4 +93,36 @@ def plot_3d_voxels(voxels, level="256", input=False):
     # plt.axis('off')
     plt.show()
 
+def plot_2d_input(features2d):
+    for i in range(7):
+        mean_feature = features2d[i,:,:].cpu().numpy()
+        invalid = (mean_feature==255)
+        mean_feature = mean_feature - np.amin(mean_feature)
+        mean_feature = mean_feature/np.amax(mean_feature)
+        mean_feature[invalid]=0
+        plt.imshow(mean_feature)
+        plt.show()
 
+def plot_bev(bev_tensor):
+    # Plot prediction
+    cmap=np.float32(classes_colors)/255.0
+    cmap = np.insert(cmap,0,[0.99,0.99,0.99],axis=0)
+    bev = bev_tensor.cpu().detach().numpy()
+    bev[bev==255]=0
+    output = cmap[np.uint8(bev.flatten())]
+    R,C = bev.shape
+    output = output.reshape((R, C, -1))
+    plt.imshow(output)
+    plt.gca().invert_yaxis()
+    plt.show()
+
+def labels_to_cmap2d(tensor):
+    cmap=np.float32(classes_colors)/255.0
+    cmap = np.insert(cmap,0,[0.99,0.99,0.99],axis=0)
+    tensor = tensor.cpu().detach().numpy()
+    tensor[tensor==255]=0
+    output = cmap[np.uint8(tensor.flatten())]
+    B,R,C = tensor.shape
+    output = output.reshape((B,R, C, -1))
+    output = np.transpose(output,(0,3,1,2))
+    return output

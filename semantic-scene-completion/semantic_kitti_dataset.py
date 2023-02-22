@@ -15,6 +15,7 @@ from spconv.pytorch.utils import PointToVoxel
 from structures import FieldList
 from torch.nn import functional as F
 from scipy.spatial.transform import Rotation as R
+from utils.transforms import get_2d_input, get_bev
 
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
@@ -252,7 +253,7 @@ class SemanticKITTIDataset(Dataset):
         '''Generate Alignment Data'''
         aliment_collection = {}
         xyz = xyz[idxs]
-        pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1))
+        pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1)) # [x,y,z,idx,remission]
 
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
@@ -308,12 +309,20 @@ class SemanticKITTIDataset(Dataset):
         # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
         voxel_centers += torch.Tensor(self.voxel_generator.coors_range[0:3])
+        # Input/Output for 2D BEV prediction model
+        intensity_voxels = torch.zeros((1,256,256,32))
+        intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
+        input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
+        bev_labels = get_bev(completion_collection['label'])
+
         aliment_collection.update({
             'voxels': voxels,
             'coords': coords,
             'voxel_centers': voxel_centers,
             'num_points_per_voxel': num_points_per_voxel,
             'features': features,
+            'input2d': input2d,
+            'bev_labels': bev_labels,
         })
         # if self.split == "test":
         #     return aliment_collection
@@ -365,7 +374,7 @@ class SemanticKITTIDataset(Dataset):
         
         # ROTATION
         if self.augment and not inp:
-            locs = torch.nonzero(t) 
+            locs = torch.nonzero(t+1) 
             values = t[locs[:,0],locs[:,1],locs[:,2],locs[:,3]]
             locs_aug = locs.float()
             # move y to the center
@@ -385,8 +394,9 @@ class SemanticKITTIDataset(Dataset):
             locs_aug = locs_aug[valid[0]]
             values = values[valid[0]]
             # go back to voxel volume
-            aug_t = torch.zeros_like(t)
+            aug_t = torch.ones_like(t)*255
             aug_t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]] = values
+
             # TODO (juan.galvis): correction for unwanted flip
             if flip_mode == 1:
                 # aug_t = t.flip([2])
@@ -435,6 +445,8 @@ def Merge(tbl):
     complet_labels_128 = []
 
     complet_features = []
+    input2d = []
+    bev_labels = []
 
 
     filenames = []
@@ -474,6 +486,12 @@ def Merge(tbl):
 
         complet_features.append(aliment_collection['features'])
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
+
+        input2d.append(aliment_collection['input2d'])
+        bev_labels.append(aliment_collection['bev_labels'])
+    
+    input2d = torch.cat(input2d, 0)
+    bev_labels = torch.cat(bev_labels, 0)
     complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
     # complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
     complet_features = torch.cat(complet_features, 0)
@@ -550,6 +568,8 @@ def Merge(tbl):
     # complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0).unsqueeze(0))
     # complet_inputs.add_field("seg_features", torch.cat(seg_features, 0).transpose(0,1))
     complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+    complet_inputs.add_field("input2d", input2d)
+    complet_inputs.add_field("bev_labels", bev_labels)
     # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
 
 

@@ -43,7 +43,7 @@ class MyModel(nn.Module):
 
 
 
-    def forward(self, targets, weights, is_train_mod=True):
+    def forward(self, targets, weights, features2D=None, is_train_mod=True):
         self._is_train_mod = is_train_mod
         # Put coordinates in the right order
         complet_coords = collect(targets, "complet_coords").squeeze()
@@ -85,7 +85,7 @@ class MyModel(nn.Module):
 
         # Forward pass through model
 
-        unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid)
+        unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
 
         losses = {}
@@ -421,7 +421,7 @@ class MyModel(nn.Module):
             gen_loss = torch.tensor(0.0)
         return {"semantic_64": loss_mean, "semantic2D_64": loss2d, "disc_64": disc_loss, "gen_64": gen_loss}, {"semantic_64": prediction_classes}
 
-    def inference(self, inputs):
+    def inference(self, inputs, features2D=None,):
         # Put coordinates in the right order
         complet_coords = collect(inputs,"complet_coords").squeeze()
         batch_size = len(torch.unique(complet_coords[:,0]))
@@ -436,7 +436,7 @@ class MyModel(nn.Module):
                             quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()
-        unet_output = self.model(sparse_coords, batch_size=batch_size, valid_mask=complet_valid)
+        unet_output = self.model(sparse_coords, batch_size=batch_size, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
         
         # level-64
