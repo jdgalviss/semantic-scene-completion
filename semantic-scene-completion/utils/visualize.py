@@ -116,11 +116,36 @@ def plot_bev(bev_tensor):
     plt.gca().invert_yaxis()
     plt.show()
 
+def plot_bev_input(bev_tensor):
+    # Plot prediction
+    viridis = cm.get_cmap('plasma', 128)
+    cmap = np.uint8(np.array(viridis.colors)*255.0)
+    
+    bev = bev_tensor.cpu().detach().numpy()
+    bev[bev>=128]=0
+    output = cmap[np.uint8(bev.flatten())]
+    R,C = bev.shape
+    output = output.reshape((R, C, -1))
+    plt.imshow(output)
+    plt.gca().invert_yaxis()
+    plt.show()
+
 def labels_to_cmap2d(tensor):
     cmap=np.float32(classes_colors)/255.0
     cmap = np.insert(cmap,0,[0.99,0.99,0.99],axis=0)
     tensor = tensor.cpu().detach().numpy()
     tensor[tensor==255]=0
+    output = cmap[np.uint8(tensor.flatten())]
+    B,R,C = tensor.shape
+    output = output.reshape((B,R, C, -1))
+    output = np.transpose(output,(0,3,1,2))
+    return output
+
+def input_to_cmap2d(tensor):
+    viridis = cm.get_cmap('plasma', 128)
+    cmap = np.array(viridis.colors)[:,:3]
+    tensor = tensor.cpu().detach().numpy()
+    tensor[tensor>=128]=0
     output = cmap[np.uint8(tensor.flatten())]
     B,R,C = tensor.shape
     output = output.reshape((B,R, C, -1))

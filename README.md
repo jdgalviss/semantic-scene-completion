@@ -17,3 +17,5 @@ python3 -m debugpy --listen 131.159.98.103:5678 --wait-for-client -m train
 curl -sL https://deb.nodesource.com/setup_18.x | bash
 # and install node 
 apt-get install nodejs
+
+tensorboard --logdir ./experiments --samples_per_plugin images=100

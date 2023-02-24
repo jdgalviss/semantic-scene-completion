@@ -178,7 +178,7 @@ class SemanticKITTIDataset(Dataset):
             rot_zyx=[0,0,0]
         completion_collection['flip_mode'] = flip_mode
         # flip_mode = 0
-        # rot_zyx=[10,5,1]
+        # rot_zyx=[30,5,1]
         # rot_zyx=[0,0,0]
 
 
@@ -255,56 +255,27 @@ class SemanticKITTIDataset(Dataset):
         xyz = xyz[idxs]
         pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1)) # [x,y,z,idx,remission]
 
+        # Rotate augmentation input
+        if self.augment:
+            r = R.from_euler('zyx', rot_zyx, degrees=True)
+            r = torch.from_numpy(r.as_matrix()).double()
+            pc[:,:3] = torch.matmul(pc[:,:3],r)
+            # Add translations
+            translation = (torch.rand(pc[:,:3].shape)-0.5)*0.5
+            mask = torch.rand(translation.shape) < (1.0 - self.config.TRAIN.RANDOM_TRANSLATION_PROB)
+            translation[mask] = 0.0
+            pc[:,:3]+=translation
+            if flip_mode == 1 or flip_mode == 2:
+                pc[:,1] = -pc[:,1]
+
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
-
 
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
         coords = coords[:, [2, 1, 0]]
         coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        coords = coords[coords[:,2] < 32,:] # clamp to 32
         coords = coords.long()
-
-        # Apply Augmentation to input data
-        # Create dense voxel grid of features so we can perform augmentation TODO(juan.galvis): this is slow.
-        if self.augment:
-            feature_voxels = torch.zeros((256,256,32)) # TODO (juan.galvis): Hardcoded
-            feature_voxels[coords[:,0],coords[:,1],coords[:,2]] = features + 1.0 # TODO (juan.galvis): So we can use non_zero
-            feature_voxels = self.data_augmentation(feature_voxels.unsqueeze(0), flip_mode,inp=True) # only flip transform
-            # feature_voxels = feature_voxels.unsqueeze(0)
-            # print("feature_voxels: ", feature_voxels.shape")
-
-            coords = torch.nonzero(feature_voxels[0])
-            features = feature_voxels[0,coords[:,0],coords[:,1],coords[:,2]] - 1.0
-        
-        # Rotation Augmentation Input Tensors
-        if self.augment:
-            values = features
-            locs_aug = coords.float()
-            # move y to the center
-            locs_aug[:,1] -= 256./2.0
-            #get rotation matrix
-            r = R.from_euler('zyx', rot_zyx, degrees=True)
-            r = torch.from_numpy(r.as_matrix()).float()
-            # Transform locations
-            locs_aug = torch.matmul(locs_aug,r)
-            # Inverse centering translation
-            locs_aug[:,1] += 256./2.0
-            # Add translations
-            translation = torch.randint(-1,2,locs_aug.shape)
-            mask = torch.rand(translation.shape) < (1.0 - self.config.TRAIN.RANDOM_TRANSLATION_PROB)
-            translation[mask] = 0
-            locs_aug+=translation
-            
-            # check inside bounds
-            valid = torch.where((locs_aug[:,0]>=0) & (locs_aug[:,1]>=0 ) & (locs_aug[:,2]>=0) & (locs_aug[:,0]<=255) & (locs_aug[:,1]<=255) & (locs_aug[:,2]<=31))
-            locs_aug = locs_aug[valid[0]]
-            values = values[valid[0]]
-            coords = locs_aug.long()
-            features = values
-
-        # print("coords", coords.shape)
-        # print("features", features.shape)
-        # print("coords: ", type(coords) )
 
         # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
@@ -360,17 +331,6 @@ class SemanticKITTIDataset(Dataset):
     def data_augmentation(self, t, flip_mode, rot_zyx=[0,0,0], level=64, inp = False, inverse=False):
         rot_zyx_flipped =  rot_zyx.copy()# TODO (juan.galvis): correction for unwanted flip
         assert t.dim() == 4, 'input dimension should be 4!'
-        # FLIP (we only flip the 50% of the times)
-        if flip_mode == 1:
-            # aug_t = t.flip([2])
-            aug_t = t.flip([2])
-            rot_zyx_flipped[0] *= -1
-
-        elif flip_mode == 2:
-            aug_t = t.flip([2])
-            rot_zyx_flipped[0] *= -1
-        else:
-            aug_t = t
         
         # ROTATION
         if self.augment and not inp:
@@ -396,15 +356,17 @@ class SemanticKITTIDataset(Dataset):
             # go back to voxel volume
             aug_t = torch.ones_like(t)*255
             aug_t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]] = values
+        else:
+            aug_t = t
 
-            # TODO (juan.galvis): correction for unwanted flip
-            if flip_mode == 1:
-                # aug_t = t.flip([2])
-                aug_t = aug_t.flip([2])
-            elif flip_mode == 2:
-                aug_t = aug_t.flip([2])
-            else:
-                aug_t = aug_t
+        # Flio: we only flip 50% of the time
+        if flip_mode == 1:
+            # aug_t = t.flip([2])
+            aug_t = aug_t.flip([2])
+        elif flip_mode == 2:
+            aug_t = aug_t.flip([2])
+        else:
+            aug_t = aug_t
         return aug_t
 
 # def sparse_tensor_augmentation(st, states):
@@ -572,8 +534,8 @@ def Merge(tbl):
     complet_inputs.add_field("bev_labels", bev_labels)
     # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
 
-
-    # complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0).unsqueeze(0))
+    # print(complet_invoxel_features.shape)
+    # complet_inputs.add_field("voxels", complet_invoxel_features.unsqueeze(0))
 
 
     # del seg_inputs, completion_collection, filenames

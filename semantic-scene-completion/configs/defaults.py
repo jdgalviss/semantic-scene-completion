@@ -39,8 +39,8 @@ _C.TRAIN.AUGMENT = True
 _C.TRAIN.NOISE_LEVEL = 0.01
 # _C.TRAIN.FLIP_AUGMENT = True # unused
 # Rotation
-_C.TRAIN.ROT_AUG_Z = [-30., 30.]
-_C.TRAIN.ROT_AUG_Y = [0.,3.0]
+_C.TRAIN.ROT_AUG_Z = [-25., 25.]
+_C.TRAIN.ROT_AUG_Y = [0.,2.5]
 _C.TRAIN.ROT_AUG_X = [-1.0, 1.0]
 _C.TRAIN.RANDOM_TRANSLATION_PROB = 0.05
 
@@ -93,10 +93,10 @@ _C.MODEL.UNET2D = True
 # SOLVER CONFIGS
 # -----------------------------------------------------------------------------
 _C.SOLVER = Node() 
-_C.SOLVER.BASE_LR = 0.000135 # 0.01
+_C.SOLVER.BASE_LR = 0.00015 # 0.01
 _C.SOLVER.BETA_1 = 0.9 
 _C.SOLVER.BETA_2 = 0.999   
 _C.SOLVER.WEIGHT_DECAY = 0.0
 # _C.SOLVER.DECAY_STEP = 40
-_C.SOLVER.LR_DECAY_RATE = 0.99
+_C.SOLVER.LR_DECAY_RATE = 0.989
 _C.SOLVER.LR_CLIP = 1e-5

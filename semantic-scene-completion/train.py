@@ -10,7 +10,7 @@ import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
 from utils.path_utils import create_new_experiment_folder, save_config
-from utils import re_seed, labels_to_cmap2d, get_bev
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d
 from structures import collect
 from evaluation import iouEval
 from model import get_sparse_values
@@ -183,6 +183,16 @@ def main():
                         # Semantic Eval
                         if i in eval_imgs_idxs and config.MODEL.UNET2D:
                             #TODO: convert output to image
+                            # input
+                            input_coords = collect(complet_inputs,"complet_coords").squeeze() # TODO: only works for batch size 1
+                            input_remission = collect(complet_inputs,"complet_features")
+                            voxels = torch.zeros((1,256,256,32)).int().cuda()
+                            voxels[input_coords[:,0].long(),input_coords[:,1].long(),input_coords[:,2].long(),input_coords[:,3].long()]=((input_remission[0]*126.0).int()+1)
+                            input_bev = get_bev(voxels)
+                            input_bev = input_to_cmap2d(input_bev)
+                            log_images[dataloader_name].append((input_bev[0]))
+
+                            # gt and prediction
                             bev_labels = collect(complet_inputs, "bev_labels")
                             bev_pred[bev_labels==255] = 0
                             bev_pred_rgb = labels_to_cmap2d(bev_pred)
@@ -275,7 +285,7 @@ def main():
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 3 if config.MODEL.UNET2D else 1
+                    num_rows = 4 if config.MODEL.UNET2D else 1
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
 
@@ -433,6 +443,10 @@ def main():
         # Save checkpoint
         if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
             torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch+1))
+            if config.MODEL.UNET2D:
+                torch.save(unet2d_model.state_dict(), experiment_dir + "/model2d{}-{}.pth".format(config.GENERAL.LEVEL, epoch+1))
+            torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch+1))
+
 
         # Learning rate scheduler step
         lr_scheduler.step()

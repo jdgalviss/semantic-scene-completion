@@ -8,6 +8,7 @@ def get_bev(voxels):
     locs = torch.nonzero(voxels_copy)    
     locations_z = torch.zeros_like(voxels_copy).long()
     locations_z[locs[:,0],locs[:,1],locs[:,2],locs[:,3]] = locs[:,3] + 1
+    # locations_z[voxels_copy == 255] = -1
     max_locs_z = torch.max(locations_z,3)
     bev = torch.zeros_like(max_locs_z.values, dtype=voxels_copy.dtype)
     max_locs_nz = torch.nonzero(max_locs_z.values)
