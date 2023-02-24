@@ -274,6 +274,7 @@ class SemanticKITTIDataset(Dataset):
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
         coords = coords[:, [2, 1, 0]]
         coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        features = features[coords[:,2] < 32] # clamp to 32
         coords = coords[coords[:,2] < 32,:] # clamp to 32
         coords = coords.long()
 
