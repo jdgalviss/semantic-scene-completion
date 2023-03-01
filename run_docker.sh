@@ -7,10 +7,11 @@ sudo docker run -it --rm  \
     --privileged \
     --runtime=nvidia \
     -v `pwd`/semantic-scene-completion:/usr/src/app/semantic-scene-completion \
-    -v /home/galvis/data/semantickitti/dataset/dataset/:/usr/src/app/data \
+    -v /home/galvis/data/ssc_dataset/dataset/:/usr/src/app/data \
     --shm-size 32G \
     ssc "$@"
 
+    # -v /home/galvis/data/semantickitti/dataset/dataset/:/usr/src/app/data \
 
     # -e DISPLAY=$DISPLAY \
     # -v $XSOCK:$XSOCK \

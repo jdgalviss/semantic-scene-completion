@@ -17,3 +17,4 @@ tensorboard==2.11.0
 tensorboardX
 imageio
 nvidia-ml-py3
+pool

@@ -137,7 +137,7 @@ def main():
             if epoch>=steps_schedule[1]:
                 if epoch>=steps_schedule[2]:
                     config.GENERAL.LEVEL = "FULL"
-                    config.TRAIN.EVAL_PERIOD = 2 if epoch >= (steps_schedule[2]+1) else 1
+                    config.TRAIN.EVAL_PERIOD = 1 if epoch >= (steps_schedule[2]+1) else 1
                 else:
                     config.GENERAL.LEVEL = "256"
             else:
