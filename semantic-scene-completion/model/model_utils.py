@@ -2,7 +2,8 @@ from typing import Tuple, Dict
 
 import MinkowskiEngine as Me
 import torch
-
+import torch.nn as nn
+from configs import config
 # Type hints
 ModuleResult = Tuple[Dict, Dict]
 
@@ -82,3 +83,62 @@ def thicken_grid(grid, grid_dims, frustum_mask):
     thicken = thicken & frustum_mask
 
     return thicken
+
+class VoxelPooling(nn.Module):
+    def __init__(self, args=None):
+        super().__init__()
+        self.args = args
+        self.fuse_k = 5
+        self.pooling_mode = 'mean'
+        if self.fuse_k > 1:
+            self.relation_w = nn.Conv1d(10, config.MODEL.NUM_INPUT_FEATURES, 1)
+
+    @staticmethod
+    def index_feat(feature, index):
+        device = index.device
+        N, K = index.shape
+        mask = None
+        if K > 1:
+            group_first = index[:, 0].view((N, 1)).repeat([1, K]).to(device)
+            mask = index == 0
+            index[mask] = group_first[mask]
+        flat_index = index.reshape((N * K,))
+        selected_feat = feature[flat_index, ]
+        if K > 1:
+            selected_feat = selected_feat.reshape((N, K, -1))
+        else:
+            selected_feat = selected_feat.reshape((N, -1))
+        return selected_feat, mask
+
+    @staticmethod
+    def relation_position(group_xyz, center_xyz):
+        K = group_xyz.shape[1]
+        tile_center = center_xyz.unsqueeze(1).repeat([1, K, 1])
+        offset = group_xyz - tile_center
+        dist = torch.norm(offset, p=None, dim=-1, keepdim=True)
+        relation = torch.cat([offset, tile_center, group_xyz, dist], -1)
+        return relation
+
+    def forward(self, invoxel_xyz, invoxel_map, src_feat, voxel_center=None):
+        device = src_feat.device
+        voxel2point_map = invoxel_map[:, :self.fuse_k].long()
+        features, mask = self.index_feat(src_feat, voxel2point_map)  # [N, K, m]
+
+        if self.fuse_k > 1:
+            if self.pooling_mode == 'mean':
+                features = features.mean(1)
+            elif self.pooling_mode == 'max':
+                features = features.max(1)[0]
+            elif self.pooling_mode == 'relation':
+                '''Voxel relation learning'''
+                invoxel_xyz = invoxel_xyz[:, :self.fuse_k].to(device)
+                N, K, _ = invoxel_xyz.shape
+                group_first = invoxel_xyz[:, 0].view((N, 1, 3)).repeat([1, K, 1]).to(device)
+                invoxel_xyz[mask, :] = group_first[mask, :]
+                relation = self.relation_position(invoxel_xyz, voxel_center.to(device))
+                group_w = self.relation_w(relation.permute(0, 2, 1))
+                features = features.permute(0, 2, 1)
+                features *= group_w
+                features = torch.mean(features, 2)
+
+        return features

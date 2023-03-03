@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from configs import config
 from torch.nn import functional as F
-from model import UNetSparse, GeometryHeadSparse, ClassificationHeadSparse
+from model import UNetHybrid, GeometryHeadSparse, ClassificationHeadSparse
 import MinkowskiEngine as Me
 import sys
 sys.path.append("..") 
@@ -14,11 +14,11 @@ from .discriminator2D import Discriminator2D, GANLoss
 device = torch.device("cuda:0")
 
 
-class MyModel(nn.Module):
-    def __init__(self,num_output_channels=8,unet_features=4,resnet_blocks=1):
+class SSCNet(nn.Module):
+    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
         super().__init__()
         self._is_train_mod = True
-        self.model = UNetSparse(num_output_channels, unet_features)
+        self.model = UNetHybrid(num_output_channels, unet_features)
         
         # Heads
         self.occupancy_256_head = GeometryHeadSparse(num_output_channels, 1, resnet_blocks)
@@ -55,7 +55,7 @@ class MyModel(nn.Module):
         # Transform to sparse tensor
         complet_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
                             coordinates=complet_coords.int().to(device),
-                            quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
+                            quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         # print("sparse_coords: ",complet_coords.shape)
         # complet_invalid = collect(targets,"complet_invalid")
         # complet_valid = torch.logical_not(complet_invalid)
