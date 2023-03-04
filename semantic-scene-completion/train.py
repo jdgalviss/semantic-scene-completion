@@ -45,7 +45,8 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
                                           betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                           weight_decay=config.SOLVER.WEIGHT_DECAY)
-    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+    # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*150, eta_min=config.SOLVER.LR_CLIP)
 
     # Load checkpoint
     if config.GENERAL.CHECKPOINT_PATH is not None:
@@ -131,17 +132,17 @@ def main():
             iteration += 1
             del batch, complet_inputs, total_loss, losses
             torch.cuda.empty_cache()
+            # Learning rate scheduler step
+            lr_scheduler.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
         train_writer.add_scalar('memory/free', info.free, epoch)
 
         # Save checkpoint
-        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
+        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0: # and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
             torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
 
-        # Learning rate scheduler step
-        lr_scheduler.step()
 
         # Evaluation
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL != "256":

@@ -261,11 +261,17 @@ class SemanticKITTIDataset(Dataset):
 
         # Rotate augmentation input
         if self.augment:
+            # Drop points randomly from pointcloud
+            keep_idxs = np.random.uniform(size=xyz.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
+            xyz = xyz[keep_idxs]
+            label = label[keep_idxs]
+            feature = feature[keep_idxs]
+            # rotate
             r = R.from_euler('zyx', rot_zyx, degrees=True)
             r = r.as_matrix()
             xyz = np.matmul(xyz,r)
             # Add translations
-            translation = (np.random.normal(size=xyz.shape))*0.125
+            translation = (np.random.normal(size=xyz.shape))*0.04
             mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
             translation[mask] = 0.0
             xyz+=translation
@@ -307,6 +313,9 @@ class SemanticKITTIDataset(Dataset):
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
         input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
         bev_labels = get_bev(completion_collection['label'])
+        completion_collection['label'][completion_collection['label']==-1] = 255
+        completion_collection['label_128'][completion_collection['label_128']==-1] = 255
+        completion_collection['label_64'][completion_collection['label_64']==-1] = 255
 
         aliment_collection.update({
             'voxels': voxels,
@@ -376,7 +385,7 @@ class SemanticKITTIDataset(Dataset):
             locs_aug = locs_aug[valid[0]]
             values = values[valid[0]]
             # go back to voxel volume
-            aug_t = torch.ones_like(t)*255
+            aug_t = torch.ones_like(t)*(-1)
             aug_t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]] = values
         else:
             aug_t = t

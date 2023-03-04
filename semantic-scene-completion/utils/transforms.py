@@ -5,6 +5,7 @@ def get_bev(voxels):
     Receives a tensor of voxels of shape [1, W, L, H] and returns the Bird-eye-view tensor of size [1, W, L]
     '''
     voxels_copy = torch.clone(voxels)
+    voxels_copy[voxels==-1]=0
     locs = torch.nonzero(voxels_copy)    
     locations_z = torch.zeros_like(voxels_copy).long()
     locations_z[locs[:,0],locs[:,1],locs[:,2],locs[:,3]] = locs[:,3] + 1
