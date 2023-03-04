@@ -16,6 +16,7 @@ from structures import FieldList
 from torch.nn import functional as F
 from scipy.spatial.transform import Rotation as R
 from utils.transforms import get_2d_input, get_bev
+from configs import config
 
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
@@ -55,11 +56,21 @@ def unpack(compressed):
 
     return uncompressed
 
+def get_labelweights():
+    ''' given a labelweights vector, make a labelweights matrix.  '''
+    seg_num_per_class = np.array(config.TRAIN.SEG_NUM_PER_CLASS)
+    complt_num_per_class = np.array(config.TRAIN.COMPLT_NUM_PER_CLASS)
+
+    seg_labelweights = seg_num_per_class / np.sum(seg_num_per_class)
+    seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
+    compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
+    compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
+    return torch.Tensor(seg_labelweights), torch.Tensor(compl_labelweights)
+    
 class SemanticKITTIDataset(Dataset):
-    def __init__(self, config, split="train", augment=False, do_overfit=False, num_samples_overfit=1):
+    def __init__(self, split="train", augment=False, do_overfit=False, num_samples_overfit=1):
         """ Load data from given dataset directory. """
         self.split = split
-        self.config = config
         self.augment = augment
         self.files = {}
         self.filenames = []
@@ -151,11 +162,11 @@ class SemanticKITTIDataset(Dataset):
             self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
             self.seg_labelweights = torch.Tensor(np.ones(19))
             self.compl_labelweights[0] = 1
-        
+        num_point_features = 8 if config.MODEL.USE_COORDS else 5
         self.voxel_generator = PointToVoxel(
             vsize_xyz=[config.COMPLETION.VOXEL_SIZE]*3,
             coors_range_xyz=config.COMPLETION.POINT_CLOUD_RANGE,
-            num_point_features=5, # or 3??
+            num_point_features=num_point_features,
             max_num_points_per_voxel=20,
             max_num_voxels=256 * 256 * 32
         )
@@ -170,15 +181,15 @@ class SemanticKITTIDataset(Dataset):
         if self.augment:
             # stat = np.random.randint(0,6)
             flip_mode = np.random.randint(0,4)
-            rot_zyx=[np.random.uniform(self.config.TRAIN.ROT_AUG_Z[0], self.config.TRAIN.ROT_AUG_Z[1]), 
-                    np.random.uniform(self.config.TRAIN.ROT_AUG_Y[0], self.config.TRAIN.ROT_AUG_Y[1]),
-                    np.random.uniform(self.config.TRAIN.ROT_AUG_X[0], self.config.TRAIN.ROT_AUG_X[1])]
+            rot_zyx=[np.random.uniform(config.TRAIN.ROT_AUG_Z[0], config.TRAIN.ROT_AUG_Z[1]), 
+                    np.random.uniform(config.TRAIN.ROT_AUG_Y[0], config.TRAIN.ROT_AUG_Y[1]),
+                    np.random.uniform(config.TRAIN.ROT_AUG_X[0], config.TRAIN.ROT_AUG_X[1])]
         else:
             flip_mode = 0 # set 0 with no augment
             rot_zyx=[0,0,0]
         completion_collection['flip_mode'] = flip_mode
         # flip_mode = 0
-        # rot_zyx=[30,5,1]
+        # rot_zyx=[0,0,10]
         # rot_zyx=[0,0,0]
 
 
@@ -192,11 +203,11 @@ class SemanticKITTIDataset(Dataset):
             if typ == "label":
                 scan_data = self.comletion_remap_lut[scan_data]
             if typ == "label_128" or typ == "invalid_128":
-                scan_data = np.int32(scan_data.reshape(self.config.COMPLETION.SECOND_SCALE))
+                scan_data = np.int32(scan_data.reshape(config.COMPLETION.SECOND_SCALE))
             elif typ == "label_64" or typ == "invalid_64":
-                scan_data = np.int32(scan_data.reshape(self.config.COMPLETION.THIRD_SCALE))
+                scan_data = np.int32(scan_data.reshape(config.COMPLETION.THIRD_SCALE))
             else:
-                scan_data = scan_data.reshape(self.config.COMPLETION.FULL_SCALE)
+                scan_data = scan_data.reshape(config.COMPLETION.FULL_SCALE)
             levels = {"label":256, "label_128":128, "label_64":64, "invalid":256, "invalid_128":128, "invalid_64":64}
             try:
                 level=levels[typ]
@@ -220,30 +231,48 @@ class SemanticKITTIDataset(Dataset):
             label = scan.sem_label
             label = self.seg_remap_lut[label]
 
-            if self.config.SEGMENTATION.USE_COORDS:
+            if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
             else:
                 feature = remissions.reshape(-1, 1)
 
             # Add noise augmentation to input data
             if self.augment:
-                feature += np.random.randn(*feature.shape)*self.config.TRAIN.NOISE_LEVEL
+                feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
         else:
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
             scan.open_scan(seg_point_name)
             
             xyz = scan.points
             remissions = scan.remissions
-            if self.config.SEGMENTATION.USE_COORDS:
+            print("si")
+
+            if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+                print("si")
             else:
                 feature = remissions.reshape(-1, 1)
             label = None
+        
 
+        # Rotate augmentation input
+        if self.augment:
+            r = R.from_euler('zyx', rot_zyx, degrees=True)
+            r = r.as_matrix()
+            xyz = np.matmul(xyz,r)
+            # Add translations
+            translation = (np.random.normal(size=xyz.shape))*0.125
+            mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
+            translation[mask] = 0.0
+            xyz+=translation
+            if flip_mode == 1 or flip_mode == 2:
+                xyz[:,1] = -xyz[:,1]
 
         '''Process Segmentation Data'''
         segmentation_collection = {}
         coords, label, feature, idxs = self.process_seg_data(xyz, label, feature)
+        # coords = coords[:, [3,0,1,2]]
+        
         segmentation_collection.update({
             'coords': coords,
             'label': label,
@@ -254,28 +283,16 @@ class SemanticKITTIDataset(Dataset):
         aliment_collection = {}
         xyz = xyz[idxs]
         pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1)) # [x,y,z,idx,remission]
-
-        # Rotate augmentation input
-        if self.augment:
-            r = R.from_euler('zyx', rot_zyx, degrees=True)
-            r = torch.from_numpy(r.as_matrix()).double()
-            pc[:,:3] = torch.matmul(pc[:,:3],r)
-            # Add translations
-            translation = (torch.rand(pc[:,:3].shape)-0.5)*0.5
-            mask = torch.rand(translation.shape) < (1.0 - self.config.TRAIN.RANDOM_TRANSLATION_PROB)
-            translation[mask] = 0.0
-            pc[:,:3]+=translation
-            if flip_mode == 1 or flip_mode == 2:
-                pc[:,1] = -pc[:,1]
-
+        
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
-        voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
 
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
         coords = coords[:, [2, 1, 0]]
-        coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
+        # coords[:, 2] += 1  # TODO SemanticKITTI will generate [256,256,31]
         features = features[coords[:,2] < 32] # clamp to 32
         coords = coords[coords[:,2] < 32,:] # clamp to 32
+        voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
+
         coords = coords.long()
 
         # print(voxel_centers.shape)
@@ -304,17 +321,17 @@ class SemanticKITTIDataset(Dataset):
         coords = np.ascontiguousarray(xyz - xyz.mean(0))
         m = np.eye(3) + np.random.randn(3, 3) * 0.1
         m[0][0] *= np.random.randint(0, 2) * 2 - 1
-        m *= self.config.SEGMENTATION.SCALE
+        m *= config.SEGMENTATION.SCALE
         theta = np.random.rand() * 2 * math.pi
         m = np.matmul(m, [[math.cos(theta), math.sin(theta), 0], [-math.sin(theta), math.cos(theta), 0], [0, 0, 1]])
         coords = np.matmul(coords, m)
 
         m = coords.min(0)
         M = coords.max(0)
-        offset = - m + np.clip(self.config.SEGMENTATION.FULL_SCALE[1] - M + m - 0.001, 0, None) * np.random.rand(3) + np.clip(
-            self.config.SEGMENTATION.FULL_SCALE[1] - M + m + 0.001, None, 0) * np.random.rand(3)
+        offset = - m + np.clip(config.SEGMENTATION.FULL_SCALE[1] - M + m - 0.001, 0, None) * np.random.rand(3) + np.clip(
+            config.SEGMENTATION.FULL_SCALE[1] - M + m + 0.001, None, 0) * np.random.rand(3)
         coords += offset
-        idxs = (coords.min(1) >= 0) * (coords.max(1) < self.config.SEGMENTATION.FULL_SCALE[1])
+        idxs = (coords.min(1) >= 0) * (coords.max(1) < config.SEGMENTATION.FULL_SCALE[1])
         coords = coords[idxs]
         feature = feature[idxs]
         if label is not None:
@@ -423,7 +440,7 @@ def Merge(tbl):
 
         '''Segmentation'''
         seg_coord = segmentation_collection['coords']
-        seg_coords.append(torch.cat([seg_coord, torch.LongTensor(seg_coord.shape[0], 1).fill_(idx)], 1))
+        seg_coords.append(torch.cat([torch.LongTensor(seg_coord.shape[0], 1).fill_(idx), seg_coord], 1))
         seg_labels.append(segmentation_collection['label'])
         seg_features.append(segmentation_collection['feature'])
 
@@ -445,10 +462,11 @@ def Merge(tbl):
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
         complet_invoxel_feature = aliment_collection['voxels']
         complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
+        complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
+        
         offset += seg_coord.shape[0]
 
         complet_features.append(aliment_collection['features'])
-        complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
 
         input2d.append(aliment_collection['input2d'])
         bev_labels.append(aliment_collection['bev_labels'])
@@ -527,12 +545,16 @@ def Merge(tbl):
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
     complet_inputs.add_field("complet_labels_64", complet_labels_64)
     complet_inputs.add_field("complet_occupancy_64", complet_occupancy_64)
-    # complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0).unsqueeze(0))
-    # complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0).unsqueeze(0))
-    # complet_inputs.add_field("seg_features", torch.cat(seg_features, 0).transpose(0,1))
+    complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
+    complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0))
+    complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
     complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
     complet_inputs.add_field("input2d", input2d)
     complet_inputs.add_field("bev_labels", bev_labels)
+    complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
+    complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
+
+
     # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
 
     # print(complet_invoxel_features.shape)

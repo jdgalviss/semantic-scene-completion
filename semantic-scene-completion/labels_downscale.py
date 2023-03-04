@@ -72,8 +72,8 @@ def process_frame(i, label_paths, invalid_paths, out_dir, downscaling, grid_dime
     label_filename = os.path.join(out_dir, filename + '.label_' + scale)
     invalid_filename = os.path.join(out_dir, filename + '.invalid_' + scale)
     # If files have not been created...
-    # if not (os.path.isfile(label_filename) & os.path.isfile(invalid_filename)):
-    if True:
+    if not (os.path.isfile(label_filename) & os.path.isfile(invalid_filename)):
+    # if True:
       LABEL_ds, INVALID_ds = downscale_data(LABEL, downscaling[scale])
       pack(INVALID_ds.astype(dtype=np.uint8)).tofile(invalid_filename)
       print(time.strftime('%x %X') + ' -- => File {} - Sequence {} saved...'.format(filename + '.label_' + scale, os.path.basename(sequence)))
@@ -109,7 +109,7 @@ def main():
     downscaling = {'128': 2, '64': 4}
     seq = sequence
 
-    with Pool(14) as pool:
+    with Pool(8) as pool:
       async_results = [pool.apply_async(process_frame, args=(i, label_paths, invalid_paths, out_dir, downscaling, grid_dimensions, remap_lut, seq)) for i in range(len(label_paths))]
       results = [r.get() for r in async_results]
     print(time.strftime('%x %X') + ' -- => All files saved for Sequence {}'.format(os.path.basename(sequence)))

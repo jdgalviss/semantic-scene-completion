@@ -11,6 +11,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+
 def get_parser():
     parser = argparse.ArgumentParser(description='Point Cloud Segmentation')
     parser.add_argument('--gpu', type=str, default='0', help='GPU idx')

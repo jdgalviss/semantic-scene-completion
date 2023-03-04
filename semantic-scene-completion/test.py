@@ -5,7 +5,7 @@ from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 import numpy as np
 import time
 from tqdm import tqdm
-from model import MyModel
+from model import SSCHead
 import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
@@ -35,7 +35,7 @@ def main():
         worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
 
-    model = MyModel(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.UNET_FEATURES)
+    model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
 
     ckpt_path = "experiments/194/modelFULL-57.pth" #config.GENERAL.CHECKPOINT_PATH
 

@@ -75,10 +75,20 @@ class UNetHybrid(nn.Module):
     def __init__(self, num_output_features: int, num_features: int = 64) -> None:
         super().__init__()
         block = UNetBlockInner(num_features * 8, num_features * 8)
+        # pytorch_total_params = sum(p.numel() for p in block.parameters() if p.requires_grad)
+        # print("UNetBlockInner params: ", pytorch_total_params)
         block = UNetBlock(num_features * 4, num_features * 8, num_features * 16, num_features * 4, block)
+        # pytorch_total_params = sum(p.numel() for p in block.parameters() if p.requires_grad)
+        # print("UNetBlock params: ", pytorch_total_params)
         block = UNetBlock(num_features * 2, num_features * 4, num_features * 8, num_features * 2, block)
+        # pytorch_total_params = sum(p.numel() for p in block.parameters() if p.requires_grad)
+        # print("UNetBlock params: ", pytorch_total_params)
         block = UNetBlockHybridSparse(num_features, num_features * 2, num_features * 6, num_features * 2, block)
+        # pytorch_total_params = sum(p.numel() for p in block.parameters() if p.requires_grad)
+        # print("UNetBlockHybridSparse params: ", pytorch_total_params)
         block = UNetBlockOuterSparse(None, num_features, num_features * 2, num_output_features, block)
+        # pytorch_total_params = sum(p.numel() for p in block.parameters() if p.requires_grad)
+        # print("UNetBlockOuterSparse params: ", pytorch_total_params)
         self.model = block
 
     def forward(self, x: torch.Tensor, batch_size=1, valid_mask=None, features2D=None) -> BlockContent:
@@ -94,7 +104,8 @@ class UNetBlock(nn.Module):
 
         num_input_features = num_output_features if num_input_features is None else num_input_features
         num_outer_features = num_inner_features * 2 if num_outer_features is None else num_outer_features
-        self.current_level = int(log(num_output_features // config.MODEL.NUM_INPUT_FEATURES, 2)) # TODO(jdgalviss): How robust is this?
+        if config.MODEL.UNET2D:
+            self.current_level = int(log(num_output_features // config.MODEL.NUM_INPUT_FEATURES, 2)) # TODO(jdgalviss): How robust is this?
         self.num_input_features = num_input_features
         num_input_features2d = 0
         num_outer_features2d = 0
@@ -202,15 +213,27 @@ class UNetBlockOuterSparse(UNetBlock):
         # define encoders
         num_encoders = 1
 
-        # define depth feature encoder
-        self.num_input_features = 1
+        # define feature encoder
+        self.num_input_features = 16 if config.MODEL.SEG_HEAD else 1
         depth_downsample = nn.Sequential(
             Me.MinkowskiConvolution(self.num_input_features, num_inner_features, kernel_size=1, stride=1, bias=True, dimension=3),
             Me.MinkowskiInstanceNorm(num_inner_features)
         )
-        self.encoder_input = nn.Sequential(
+
+        self.encoder_feat = nn.Sequential(
             SparseBasicBlock(self.num_input_features, num_inner_features, dimension=3, downsample=depth_downsample)
         )
+        self.num_semantic_features = config.SEGMENTATION.NUM_CLASSES 
+        if config.MODEL.SEG_HEAD:
+            num_encoders+=1
+            # define segmentation feature encoder
+            seg_downsample = nn.Sequential(
+                Me.MinkowskiConvolution(self.num_semantic_features-1, num_inner_features, kernel_size=1, stride=1, bias=True, dimension=3), # no empty class for semantic predictions
+                Me.MinkowskiInstanceNorm(num_inner_features)
+            )
+            self.encoder_seg = nn.Sequential(
+                SparseBasicBlock(self.num_semantic_features-1, num_inner_features, dimension=3, downsample=seg_downsample)
+            )
         
         num_combined_encoder_features = num_encoders * num_inner_features
         encoder_downsample = nn.Sequential(
@@ -225,7 +248,7 @@ class UNetBlockOuterSparse(UNetBlock):
         # define proxy outputs
         self.proxy_occupancy_128_head = nn.Sequential(Me.MinkowskiLinear(num_outer_features, 1))
 
-        self.num_semantic_features = config.SEGMENTATION.NUM_CLASSES
+        
         num_proxy_input_features = num_outer_features + num_inner_features
 
         self.proxy_semantic_128_head = nn.Sequential(
@@ -245,20 +268,32 @@ class UNetBlockOuterSparse(UNetBlock):
 
     def forward(self, x: BlockContent, batch_size: int):
         # print("\n Outter Sparse Block: ")
-        input_features = x.data
-        # print("input_features shape:", input_features.shape)
-        cm = input_features.coordinate_manager
-        # key = input_features.coordinate_map_key
+        content = x.data
+        # print("content shape:", content.shape)
+        cm = content.coordinate_manager
+        key = content.coordinate_map_key
 
         # process each input feature type individually
         # concat all processed features and process with another encoder
-        # process depth features
-
-        encoded_input = self.encoder_input(input_features) if not self.verbose else self.forward_verbose(input_features, self.encoder_input)
+        
+        # process pointcloud features
+        start_features = 0
+        end_features = self.num_input_features
+        features_input = Me.SparseTensor(content.F[:, start_features:end_features], coordinate_manager=cm, coordinate_map_key=key)
+        encoded_input = self.encoder_feat(features_input) if not self.verbose else self.forward_verbose(features_input, self.encoder_feat)
         # print("encoded_input: ", encoded_input.shape)
         # encoded_input = Me.cat(encoded_input, encoded_features) unused!
 
-        # process input features
+        # process seg probs if present
+        if config.MODEL.SEG_HEAD:
+            start_features = end_features
+            end_features += self.num_semantic_features
+            seg_input = Me.SparseTensor(content.F[:, start_features:end_features], coordinate_manager=cm, coordinate_map_key=key)
+            encoded_seg = self.encoder_seg(seg_input) if not self.verbose else self.forward_verbose(seg_input, self.encoder_seg)
+            # print("encoded_seg: ", encoded_seg.shape)
+            encoded_input = Me.cat(encoded_input, encoded_seg)
+
+        # process all input_features
         encoded = self.encoder(encoded_input) if not self.verbose else self.forward_verbose(encoded_input, self.encoder)
         # print("encoded: ", encoded.shape)
         # forward to next hierarchy

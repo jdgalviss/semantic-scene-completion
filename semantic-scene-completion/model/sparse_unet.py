@@ -106,33 +106,33 @@ class UNetSparse(ME.MinkowskiNetwork):
     def forward(self, x):
         out_s1 = self.block1(x)
         out = MF.relu(out_s1)
-        print("1: ",out.shape)
+        # print("1: ",out.shape)
 
         out_s2 = self.block2(out)
         out = MF.relu(out_s2)
-        print("2: ",out.shape)
+        # print("2: ",out.shape)
 
         out_s4 = self.block3(out)
         out = MF.relu(out_s4)
-        print("3: ",out.shape)
+        # print("3: ",out.shape)
 
         out_s5 = self.block4(out)
         out = MF.relu(out_s5)
-        print("4: ",out.shape)
+        # print("4: ",out.shape)
 
         out = MF.relu(self.block4_tr(out))
         out = ME.cat(out, out_s4)
 
-        print("5: ",out.shape)
+        # print("5: ",out.shape)
 
         out = MF.relu(self.block3_tr(out))
         out = ME.cat(out, out_s2)
-        print("6: ",out.shape)
+        # print("6: ",out.shape)
 
 
         out = MF.relu(self.block2_tr(out))
         out = ME.cat(out, out_s1)
-        print(out.shape)
+        # print(out.shape)
 
         return self.conv1_tr(out)
 

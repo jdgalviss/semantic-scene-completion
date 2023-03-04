@@ -22,5 +22,10 @@ def save_config(config: Node, save_path: str) -> None:
     """
     with open(save_path + "/config.yaml", "w") as f:
         f.write(config.dump())
-    # shutil.copyfile("train.py", save_path + "/train.py")
-    # shutil.copyfile("../nav2D-envs/nav2D_envs/envs/nav2D_world.py", save_path + "/nav2D_world.py")
+        
+    shutil.copyfile("train.py", save_path + "/train.py")
+    shutil.copyfile("semantic_kitti_dataset.py", save_path + "/semantic_kitti_dataset.py")
+    shutil.copyfile("model/hybrid_unet.py", save_path + "/hybrid_unet.py")
+    shutil.copyfile("model/sparse_seg_net.py", save_path + "/sparse_seg_net.py")
+    shutil.copyfile("model/ssc_head.py", save_path + "/ssc_head.py")
+    shutil.copyfile("model/my_net.py", save_path + "/my_net.py")
