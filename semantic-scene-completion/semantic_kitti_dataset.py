@@ -63,8 +63,12 @@ def get_labelweights():
 
     seg_labelweights = seg_num_per_class / np.sum(seg_num_per_class)
     seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
+    seg_labelweights = 1.0*seg_labelweights/np.linalg.norm(seg_labelweights)
+
     compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
     compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
+    compl_labelweights = 1.0*compl_labelweights/np.linalg.norm(compl_labelweights)
+
     return torch.Tensor(seg_labelweights), torch.Tensor(compl_labelweights)
     
 class SemanticKITTIDataset(Dataset):
