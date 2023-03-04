@@ -25,7 +25,7 @@ class SparseSegNet(nn.Module):
         if config.MODEL.COMPLETION_INTERACTION:
             self.shape_embedding = nn.Sequential(
                 nn.Conv1d(config.MODEL.NUM_INPUT_FEATURES, config.MODEL.NUM_INPUT_FEATURES, kernel_size=1, bias=True),
-                nn.InstanceNorm1d(config.SEGMENTATION.NUM_CLASSES - 1),
+                nn.InstanceNorm1d(config.MODEL.NUM_INPUT_FEATURES),
                 nn.LeakyReLU(0.2,inplace=True),
             )
         self.criteria = F.cross_entropy

@@ -122,7 +122,8 @@ def main():
                         train_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
                     elif "64" in k:
                         train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
-                train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)    
+                if config.MODEL.SEG_HEAD:
+                    train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)    
                 log_msg["total_loss"] = total_loss.item()
                 pbar.set_postfix(log_msg)
             
@@ -158,11 +159,13 @@ def main():
                                     
                     print("\n------Evaluating {} set on {} samples------".format(dataloader_name, len(dataloader)))
                     if config.GENERAL.LEVEL == "64":
-                        levels = ["seg","64"]
+                        levels = ["64"]
                     elif config.GENERAL.LEVEL == "128":
-                        levels = ["seg","64","128"] # ["64", "128"]
+                        levels = ["64","128"] # ["64", "128"]
                     elif config.GENERAL.LEVEL == "FULL":
-                        levels = ["seg","64", "128","256"] #["64", "128", "256"]
+                        levels = ["64", "128","256"] #["64", "128", "256"]
+                    if config.MODEL.SEG_HEAD:
+                        levels.append("seg")
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
                         results = model.inference(complet_inputs)
@@ -183,13 +186,14 @@ def main():
                             log_images[dataloader_name].append((bev_gt[0]))
                         
                         # iou for pointcloud segmentation
-                        pc_seg_pred = results['pc_seg']
-                        pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
-                        pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()
-                        pc_seg_gt = collect(complet_inputs, "seg_labels").cpu().detach().numpy()
-                        pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
-                        pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
-                        seg_evaluators["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
+                        if config.MODEL.SEG_HEAD:
+                            pc_seg_pred = results['pc_seg']
+                            pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
+                            pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()
+                            pc_seg_gt = collect(complet_inputs, "seg_labels").cpu().detach().numpy()
+                            pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
+                            pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
+                            seg_evaluators["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
 
                         for level in levels:
                             if level=="seg": # this doesn't apply for pointcloud segmentation
@@ -242,40 +246,40 @@ def main():
                         del batch, complet_inputs, results, semantic_gt, occupancy_gt, semantic_labels, occupancy_prediction
                         torch.cuda.empty_cache()
                 
-                # log eval results
+                    # log eval results
 
-                for level in levels:
-                    print("Evaluating level: {}".format(level))
-                    _, class_jaccard = seg_evaluators[level].getIoU()
-                    m_jaccard = class_jaccard[1:].mean()
-                    ignore = [0]
-                    for i, jacc in enumerate(class_jaccard):
-                        if i not in ignore:
-                            writers[dataloader_name].add_scalar('eval-{}/{}'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
-                            # print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
-                            #     i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
-                    print('{} point avg class IoU: {}'.format(dataloader_name,m_jaccard*100))
-                    
-                    # compute remaining metrics.
-                    conf = seg_evaluators[level].get_confusion()
-                    precision = np.sum(conf[1:,1:]) / (np.sum(conf[1:,:]) + epsilon)
-                    recall = np.sum(conf[1:,1:]) / (np.sum(conf[:,1:]) + epsilon)
-                    acc_cmpltn = (np.sum(conf[1:, 1:])) / (np.sum(conf) - conf[0,0])
+                    for level in levels:
+                        print("Evaluating level: {}".format(level))
+                        _, class_jaccard = seg_evaluators[level].getIoU()
+                        m_jaccard = class_jaccard[1:].mean()
+                        ignore = [0]
+                        for i, jacc in enumerate(class_jaccard):
+                            if i not in ignore:
+                                writers[dataloader_name].add_scalar('eval-{}/{}'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
+                                # print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
+                                #     i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
+                        print('{} point avg class IoU: {}'.format(dataloader_name,m_jaccard*100))
+                        
+                        # compute remaining metrics.
+                        conf = seg_evaluators[level].get_confusion()
+                        precision = np.sum(conf[1:,1:]) / (np.sum(conf[1:,:]) + epsilon)
+                        recall = np.sum(conf[1:,1:]) / (np.sum(conf[:,1:]) + epsilon)
+                        acc_cmpltn = (np.sum(conf[1:, 1:])) / (np.sum(conf) - conf[0,0])
 
-                    print("Precision =\t" + str(np.round(precision * 100, 2)) + '\n' +
-                            "Recall =\t" + str(np.round(recall * 100, 2)) + '\n' +
-                            "IoU Cmpltn =\t" + str(np.round(acc_cmpltn * 100, 2)) + '\n')   
-                    
-                    writers[dataloader_name].add_scalar('eval-{}/mIoU'.format(level), m_jaccard*100, epoch)
-                    writers[dataloader_name].add_scalar('eval-{}/precision'.format(level), precision*100, epoch)
-                    writers[dataloader_name].add_scalar('eval-{}/recall'.format(level), recall*100, epoch)
-                    writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn'.format(level), acc_cmpltn*100, epoch)
+                        print("Precision =\t" + str(np.round(precision * 100, 2)) + '\n' +
+                                "Recall =\t" + str(np.round(recall * 100, 2)) + '\n' +
+                                "IoU Cmpltn =\t" + str(np.round(acc_cmpltn * 100, 2)) + '\n')   
+                        
+                        writers[dataloader_name].add_scalar('eval-{}/mIoU'.format(level), m_jaccard*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/precision'.format(level), precision*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/recall'.format(level), recall*100, epoch)
+                        writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn'.format(level), acc_cmpltn*100, epoch)
 
-                # log bev images:
-                imgs = torch.Tensor(log_images[dataloader_name])
-                num_rows = 4 if config.MODEL.UNET2D else 3
-                grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
-                writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
+                    # log bev images:
+                    imgs = torch.Tensor(log_images[dataloader_name])
+                    num_rows = 4 if config.MODEL.UNET2D else 3
+                    grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
+                    writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
 
 if __name__ == '__main__':
     # Arguments

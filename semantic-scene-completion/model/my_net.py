@@ -12,8 +12,9 @@ from structures import collect
 class MyModel(nn.Module):
     def __init__(self, **kwargs):
         super(MyModel, self).__init__()
-        self.seg_model = SparseSegNet()
-        self.voxelpool = VoxelPooling()
+        if config.MODEL.SEG_HEAD:
+            self.seg_model = SparseSegNet()
+            self.voxelpool = VoxelPooling()
         self.ssc_model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
 
 
@@ -45,7 +46,7 @@ class MyModel(nn.Module):
     
     def inference(self,batch):
         results = {}
-
+        seg_feat = None
         if config.MODEL.SEG_HEAD:
             complet_invoxel_features = collect(batch, "complet_invoxel_features")
             voxel_centers = collect(batch, "voxel_centers")
