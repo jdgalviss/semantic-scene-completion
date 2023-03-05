@@ -54,7 +54,7 @@ class SSCHead(nn.Module):
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         complet_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.int().to(device),
+                            coordinates=complet_coords.float().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         # print("sparse_coords: ",complet_coords.shape)
         # complet_invalid = collect(targets,"complet_invalid")
@@ -396,7 +396,7 @@ class SSCHead(nn.Module):
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         sparse_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.int().to(device),
+                            coordinates=complet_coords.float().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()

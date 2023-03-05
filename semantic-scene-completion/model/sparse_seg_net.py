@@ -33,7 +33,7 @@ class SparseSegNet(nn.Module):
 
     def forward(self, coords, feat, label=None, weights=None):
         x = Me.SparseTensor(features=feat,
-                            coordinates=coords.int(),
+                            coordinates=coords.float(),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         x = self.sparse_model(x)
         x = x.features_at_coordinates(coords.float()) # recover original shape
@@ -50,7 +50,7 @@ class SparseSegNet(nn.Module):
     
     def inference(self,coords,feat):
         x = Me.SparseTensor(features=feat,
-                            coordinates=coords.int(),
+                            coordinates=coords.float(),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         x = self.sparse_model(x)
         x = x.features_at_coordinates(coords.float()) # recover original shape

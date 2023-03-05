@@ -573,7 +573,7 @@ class UNetBlockHybridSparse(UNetBlockOuter):
             coords_next[:, 1:] *= stride  # "upsample coordinates"
             cm = encoded.coordinate_manager
             key, _ = cm.insert_and_map(coords_next, encoded.tensor_stride, string_id="decoded")
-            sparse_features = Me.SparseTensor(sparse_features, coordinates=coords_next.int(), tensor_stride=4, coordinate_manager=cm)
+            sparse_features = Me.SparseTensor(sparse_features, coordinates=coords_next.float(), tensor_stride=4, coordinate_manager=cm)
             # print("sparse_features: ", sparse_features.shape)
             concat = sparse_cat_union(encoded, sparse_features)
             # print("concat: ", concat.shape)
