@@ -21,7 +21,7 @@ from evaluation import iouEval
 
 epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
-eval_imgs_idxs = [1,2,3,4,5,6,7,8]
+eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600]
 
 def main():
     re_seed(0)

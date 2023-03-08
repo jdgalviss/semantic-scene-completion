@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
 from configs import config
-from .sparse_unet import UNetSparse
+from .sparse_unet import MinkUNet14E
 
 device = torch.device("cuda:0")
 
@@ -12,12 +12,11 @@ class SparseSegNet(nn.Module):
     def __init__(self, **kwargs):
         super().__init__()
         input_dim = 4 if config.MODEL.USE_COORDS else 1
-
         self.sparse_model = nn.Sequential(
             Me.MinkowskiConvolution(input_dim, config.MODEL.NUM_INPUT_FEATURES, kernel_size=3, bias=True, stride=1, dimension=3),
             Me.MinkowskiInstanceNorm(config.MODEL.NUM_INPUT_FEATURES),
             Me.MinkowskiReLU(inplace=True),
-            UNetSparse(in_nchannel=config.MODEL.NUM_INPUT_FEATURES, out_nchannel=config.MODEL.NUM_INPUT_FEATURES,D=3),
+            MinkUNet14E(in_channels=config.MODEL.NUM_INPUT_FEATURES, out_channels=config.MODEL.NUM_INPUT_FEATURES, D=3),
             Me.MinkowskiInstanceNorm(config.MODEL.NUM_INPUT_FEATURES),
             Me.MinkowskiReLU(inplace=True),
         )
