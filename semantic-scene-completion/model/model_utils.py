@@ -88,7 +88,7 @@ class VoxelPooling(nn.Module):
     def __init__(self, args=None):
         super().__init__()
         self.args = args
-        self.fuse_k = 5
+        self.fuse_k = 20 
         self.pooling_mode = 'mean'
         if self.fuse_k > 1:
             self.relation_w = nn.Conv1d(10, config.MODEL.NUM_INPUT_FEATURES, 1)
