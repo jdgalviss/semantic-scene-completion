@@ -12,9 +12,13 @@ from structures import collect
 class MyModel(nn.Module):
     def __init__(self, **kwargs):
         super(MyModel, self).__init__()
+        self.complet_sigma = nn.Parameter(torch.Tensor(6).uniform_(0.2, 1), requires_grad=True)
         if config.MODEL.SEG_HEAD:
             self.seg_model = SparseSegNet()
             self.voxelpool = VoxelPooling()
+            self.seg_sigma = nn.Parameter(torch.Tensor(1).uniform_(0.2, 1), requires_grad=True)
+        else:
+            self.seg_sigma = None
         self.ssc_model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
 
 
@@ -42,7 +46,7 @@ class MyModel(nn.Module):
         loss, result = self.ssc_model(batch, seg_feat, compl_weights)
         losses.update(loss)
         results.update(result)
-        return results, losses
+        return results, losses, [self.seg_sigma, self.complet_sigma]
     
     def inference(self,batch):
         results = {}

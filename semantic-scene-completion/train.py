@@ -96,17 +96,42 @@ def main():
             _, complet_inputs, _, _ = batch
 
             # forward pass
-            _, losses = model(complet_inputs, seg_labelweights, compl_labelweights)
+            _, losses, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
             total_loss: torch.Tensor = 0.0
-            total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
-            if config.MODEL.SEG_HEAD:
-                total_loss += losses["pc_seg"]*config.MODEL.PC_SEG_WEIGHT
-            if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
-            if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
-            if config.GENERAL.LEVEL == "FULL":
-                total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
+
+            if config.TRAIN.UNCERTAINTY_LOSS:
+                factor_compl = 1.0 / (sigma[1]**2)
+                total_loss = factor_compl[0] * losses["occupancy_64"] + 2 * torch.log(sigma[1][0]) + \
+                            factor_compl[1] * 10.0 * losses["semantic_64"] + 2 * torch.log(sigma[1][1]) 
+                if config.MODEL.SEG_HEAD:
+                    factor_seg = 1.0 / (sigma[0]**2)
+                    total_loss += factor_seg[0] * losses["pc_seg"] + 2 * torch.log(sigma[0][0])
+                    train_writer.add_scalar('factors/seg_pc', factor_seg.detach().cpu(), iteration)
+                if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                    total_loss += factor_compl[2] * losses["occupancy_128"] + 2 * torch.log(sigma[1][2]) + \
+                                    factor_compl[3] * 10.0 * losses["semantic_128"] + 2 * torch.log(sigma[1][3])  
+                if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                    total_loss += factor_compl[4] * losses["occupancy_256"] + 2 * torch.log(sigma[1][4])
+                if config.GENERAL.LEVEL == "FULL":
+                    total_loss += factor_compl[5] * 10.0 * losses["semantic_256"] + 2 * torch.log(sigma[1][5])
+
+                train_writer.add_scalar('factors/complt_64', factor_compl[0].detach().cpu(), iteration)
+                train_writer.add_scalar('factors/seg_64', factor_compl[1].detach().cpu(), iteration)
+                train_writer.add_scalar('factors/complt_128', factor_compl[2].detach().cpu(), iteration)
+                train_writer.add_scalar('factors/seg_128', factor_compl[3].detach().cpu(), iteration)
+                train_writer.add_scalar('factors/complt_256', factor_compl[4].detach().cpu(), iteration)
+                train_writer.add_scalar('factors/seg_256', factor_compl[5].detach().cpu(), iteration)
+
+            else:
+                total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
+                if config.MODEL.SEG_HEAD:
+                    total_loss += losses["pc_seg"]*config.MODEL.PC_SEG_WEIGHT
+                if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                    total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
+                if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                    total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
+                if config.GENERAL.LEVEL == "FULL":
+                    total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
 
             # backward pass and learning step
             if torch.is_tensor(total_loss):
