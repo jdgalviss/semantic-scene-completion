@@ -32,7 +32,7 @@ class MyModel(nn.Module):
             # pool feature vector before passing it as input to completion network
             seg_feat = torch.cat([seg_out,seg_feat],dim=1)
             seg_feat = self.voxelpool(invoxel_xyz=complet_invoxel_features[:, :, :-1],
-                     invoxel_map=complet_invoxel_features[:, :, -1].long(),
+                     invoxel_map=complet_invoxel_features[:, :, 3].long(),
                      src_feat=seg_feat,
                      voxel_center=voxel_centers)
             loss = {"pc_seg": loss}

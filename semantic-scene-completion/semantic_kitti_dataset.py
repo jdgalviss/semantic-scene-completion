@@ -253,7 +253,6 @@ class SemanticKITTIDataset(Dataset):
 
             if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
-                print("si")
             else:
                 feature = remissions.reshape(-1, 1)
             label = None
