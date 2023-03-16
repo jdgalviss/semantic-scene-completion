@@ -57,17 +57,22 @@ class SSCHead(nn.Module):
                             coordinates=complet_coords.float().to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         # print("sparse_coords: ",complet_coords.shape)
-        # complet_invalid = collect(targets,"complet_invalid")
-        # complet_valid = torch.logical_not(complet_invalid)
-        # complet_valid = F.max_pool3d(complet_invalid.float(), kernel_size=2, stride=4).bool()
+
+        # complet_valid = collect(targets,"complet_valid")
+        # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        # complet_valid = collect(targets, "frustum_mask")
+        # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+
+
         # complet_valid = torch.ones_like(complet_valid).bool()
         # complet_valid = (torch.rand((1,64,64,8), dtype=torch.float) < 0.9).to(device).bool()
         # complet_valid = torch.rand_like(complet_valid, dtype=torch.float) > 0.5
         # print("completion_valid values: ", torch.max(complet_valid))
         # print("completion_valid values: ", torch.min(complet_valid))
-        complet_valid = torch.ones(1,64,64,8).to(device).bool()
-        # return {}, {}
 
+        complet_valid = torch.ones(1,64,64,8).to(device).bool()
+        
+        # return {}, {}
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
         # print("complet_valid shape:", complet_valid.shape)

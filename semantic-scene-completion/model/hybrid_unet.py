@@ -214,7 +214,8 @@ class UNetBlockOuterSparse(UNetBlock):
         num_encoders = 1
 
         # define feature encoder
-        self.num_input_features = 16 if config.MODEL.SEG_HEAD else 1
+        self.num_input_features = config.MODEL.NUM_INPUT_FEATURES if config.MODEL.SEG_HEAD else 1
+        print("num_input_features:", self.num_input_features)
         depth_downsample = nn.Sequential(
             Me.MinkowskiConvolution(self.num_input_features, num_inner_features, kernel_size=1, stride=1, bias=True, dimension=3),
             Me.MinkowskiInstanceNorm(num_inner_features)
@@ -289,6 +290,7 @@ class UNetBlockOuterSparse(UNetBlock):
             start_features = end_features
             end_features += self.num_semantic_features
             seg_input = Me.SparseTensor(content.F[:, start_features:end_features], coordinate_manager=cm, coordinate_map_key=key)
+
             encoded_seg = self.encoder_seg(seg_input) if not self.verbose else self.forward_verbose(seg_input, self.encoder_seg)
             # print("encoded_seg: ", encoded_seg.shape)
             encoded_input = Me.cat(encoded_input, encoded_seg)

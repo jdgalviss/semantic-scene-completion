@@ -17,6 +17,10 @@ class MyModel(nn.Module):
             self.seg_model = SparseSegNet()
             self.voxelpool = VoxelPooling()
             self.seg_sigma = nn.Parameter(torch.Tensor(1).uniform_(0.2, 1), requires_grad=True)
+            if not config.SEGMENTATION.TRAIN:
+                self.seg_sigma.requires_grad = False
+                self.seg_model.requires_grad = False
+
         else:
             self.seg_sigma = None
         self.ssc_model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
@@ -26,6 +30,7 @@ class MyModel(nn.Module):
         losses, results = {}, {}
         seg_feat = None
         if config.MODEL.SEG_HEAD:
+                
             complet_invoxel_features = collect(batch, "complet_invoxel_features")
             voxel_centers = collect(batch, "voxel_centers")
             seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords"), 
@@ -39,6 +44,9 @@ class MyModel(nn.Module):
                      invoxel_map=complet_invoxel_features[:, :, 3].long(),
                      src_feat=seg_feat,
                      voxel_center=voxel_centers)
+            if not config.SEGMENTATION.TRAIN:
+                seg_feat = seg_feat.detach()
+                loss = loss.detach()
             loss = {"pc_seg": loss}
             seg_out = {"pc_seg": seg_out}
             losses.update(loss)

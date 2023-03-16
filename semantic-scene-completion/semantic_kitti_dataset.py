@@ -319,6 +319,8 @@ class SemanticKITTIDataset(Dataset):
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
         input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
         bev_labels = get_bev(completion_collection['label'])
+
+        completion_collection.update({'frustum_mask': completion_collection['label'] != -1})
         completion_collection['label'][completion_collection['label']==-1] = 255
         completion_collection['label_128'][completion_collection['label_128']==-1] = 255
         completion_collection['label_64'][completion_collection['label_64']==-1] = 255
@@ -446,6 +448,7 @@ def Merge(tbl):
     complet_features = []
     input2d = []
     bev_labels = []
+    frustum_mask = []
 
 
     filenames = []
@@ -468,6 +471,7 @@ def Merge(tbl):
         complet_coord = torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1)
         complet_coords.append(complet_coord)
 
+
         input_vx.append(completion_collection['input'])
         complet_labels.append(completion_collection['label'])
         complet_labels_128.append(completion_collection['label_128'])
@@ -475,6 +479,7 @@ def Merge(tbl):
         complet_invalid.append(completion_collection['invalid'])
         complet_invalid_64.append(completion_collection['invalid_64'])
         complet_invalid_128.append(completion_collection['invalid_128'])
+        frustum_mask.append(completion_collection['frustum_mask'])
 
         stats.append(completion_collection['flip_mode'])
 
@@ -523,6 +528,7 @@ def Merge(tbl):
     invalid_locs = torch.nonzero(complet_invalid[0])
     invalid_locs_128 = torch.nonzero(complet_invalid_128[0])
     invalid_locs_64 = torch.nonzero(complet_invalid_64[0])
+    frustum_mask = torch.cat(frustum_mask, 0)
     
     # input_vx = torch.cat(input_vx, 0)    
     # input_coords = torch.nonzero(input_vx)
@@ -572,6 +578,7 @@ def Merge(tbl):
     complet_inputs.add_field("bev_labels", bev_labels)
     complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
     complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
+    complet_inputs.add_field("frustum_mask", frustum_mask)
 
 
     # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
