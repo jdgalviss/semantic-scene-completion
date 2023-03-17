@@ -57,7 +57,7 @@ def main():
         print("TRAINING_EPOCH: ", training_epoch)
     else:
         training_epoch = 0
-        if config.SEGMENTATION.CHECKPOINT is not None:
+        if config.MODEL.SEG_HEAD and config.SEGMENTATION.CHECKPOINT is not None:
             model_seg_checkpoint = MyModel().cuda()
             model_seg_checkpoint.load_state_dict(torch.load(config.SEGMENTATION.CHECKPOINT))
             model.seg_model.load_state_dict(model_seg_checkpoint.seg_model.state_dict())

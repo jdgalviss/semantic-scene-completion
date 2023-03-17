@@ -45,6 +45,8 @@ class SparseSegNet(nn.Module):
             x = self.linear(feat)
 
         loss = self.criteria(x, label.long(), weight=weights, reduction="mean", ignore_index=-100)
+        if config.SEGMENTATION.SOFTMAX:
+            x = F.softmax(x, dim=1)
         return x, feat, loss
     
     def inference(self,coords,feat):
@@ -61,6 +63,7 @@ class SparseSegNet(nn.Module):
             feat = x
             x = self.linear(feat)
         
-        
+        if config.SEGMENTATION.SOFTMAX:
+            x = F.softmax(x, dim=1)
 
         return x, feat
