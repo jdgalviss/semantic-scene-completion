@@ -4,6 +4,7 @@ import torch.nn as nn
 import numpy as np
 from configs import config
 from .sparse_seg_net import SparseSegNet
+from .seg_2dpass_net import SparseSegNet2DPASS
 from .ssc_head import SSCHead
 from .model_utils import VoxelPooling
 from structures import collect
@@ -15,7 +16,11 @@ class MyModel(nn.Module):
         super(MyModel, self).__init__()
         self.complet_sigma = nn.Parameter(torch.Tensor(6).uniform_(0.2, 1), requires_grad=True)
         if config.MODEL.SEG_HEAD:
-            self.seg_model = SparseSegNet()
+            if config.SEGMENTATION.SEG_MODEL == "2DPASS":
+                self.seg_model = SparseSegNet2DPASS().cuda()
+                print("2DPASS model")
+            else:
+                self.seg_model = SparseSegNet()
             self.voxelpool = VoxelPooling()
             self.seg_sigma = nn.Parameter(torch.Tensor(1).uniform_(0.2, 1), requires_grad=True)
             if not config.SEGMENTATION.TRAIN:

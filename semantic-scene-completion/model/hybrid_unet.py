@@ -214,7 +214,14 @@ class UNetBlockOuterSparse(UNetBlock):
         num_encoders = 1
 
         # define feature encoder
-        self.num_input_features = config.MODEL.NUM_INPUT_FEATURES if config.MODEL.SEG_HEAD else 1
+        if config.MODEL.SEG_HEAD:
+            if config.SEGMENTATION.SEG_MODEL == "2DPASS":
+                self.num_input_features = 256
+            else:
+                self.num_input_features = config.MODEL.NUM_INPUT_FEATURES
+        else:
+            self.num_input_features = 1
+        # self.num_input_features = config.MODEL.NUM_INPUT_FEATURES if config.MODEL.SEG_HEAD else 1
         print("num_input_features:", self.num_input_features)
         depth_downsample = nn.Sequential(
             Me.MinkowskiConvolution(self.num_input_features, num_inner_features, kernel_size=1, stride=1, bias=True, dimension=3),

@@ -282,10 +282,10 @@ class SemanticKITTIDataset(Dataset):
         coords, label, feature, idxs = self.process_seg_data(xyz, label, feature)
         # coords = coords[:, [3,0,1,2]]
         # Normalize segmentation features
-        if config.MODEL.USE_COORDS:
-            feature[:,0] /= 80.0
-            feature[:,1] /= 80.0
-            feature[:,2] /= 10.0
+        # if config.MODEL.USE_COORDS:
+        #     feature[:,0] /= 80.0
+        #     feature[:,1] /= 80.0
+        #     feature[:,2] /= 10.0
             # feature[:,3] = feature[:,3]/0.5 - 1.0
         
         

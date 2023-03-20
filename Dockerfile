@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir torch==1.10.0+cu113 torchvision==0.11.0+cu113 tor
 
 # ## Install MinkowskiEngine
 ENV MAX_JOBS=4
-# RUN /bin/bash -c "git clone https://github.com/xheon/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
+# ENV TORCH_CUDA_ARCH_LIST="6.1"
+# RUN /bin/bash -c "git clone https://github.com/NVIDIA/MinkowskiEngine.git; cd MinkowskiEngine; python3 setup.py install --blas=openblas --force_cuda"
 RUN pip install -U git+https://github.com/NVIDIA/MinkowskiEngine -v --no-deps --install-option="--force_cuda" --install-option="--blas=openblas" 
 
 # SemanticKITTI API
@@ -64,6 +65,9 @@ RUN pip3 install spconv-cu113
 # RUN /bin/bash -c "cd /tmp; wget https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0.tar.gz; tar -zxvf cmake-3.20.0.tar.gz; cd cmake-3.20.0; ./bootstrap; make -j4; make install"
 # WORKDIR /usr/src/app
 # RUN /bin/bash -c "git clone https://github.com/llijiang/PointGroup.git --recursive"
-
+# 2DPASS extra dependencies
+RUN pip3 install pytorch_lightning==1.8 torch-scatter easydict
+# torchscatter
+# easydict
 WORKDIR /usr/src/app/semantic-scene-completion
 
