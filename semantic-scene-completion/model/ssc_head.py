@@ -11,9 +11,17 @@ sys.path.append("..")
 from structures import collect
 from utils import get_bev
 from .discriminator2D import Discriminator2D, GANLoss
+from .lovasz_loss import lovasz_softmax
 device = torch.device("cuda:0")
 
+class Lovasz_loss(nn.Module):
+    def __init__(self, ignore=None):
+        super(Lovasz_loss, self).__init__()
+        self.ignore = ignore
 
+    def forward(self, probas, labels):
+        return lovasz_softmax(probas, labels, ignore=self.ignore)
+    
 class SSCHead(nn.Module):
     def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
         super().__init__()
@@ -41,6 +49,10 @@ class SSCHead(nn.Module):
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
         self.criterion_semantics = F.cross_entropy  #nn.CrossEntropyLoss(reduction="none")
 
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            self.lovasz_loss = Lovasz_loss(ignore=255)
+
+        
 
 
     def forward(self, targets, seg_features, weights, features2D=None, is_train_mod=True):
@@ -161,13 +173,16 @@ class SSCHead(nn.Module):
 
 
         loss = self.criterion_semantics(prediction.F, ground_truth.squeeze(), weight=weights, reduction="none", ignore_index=255)
-
         # Get sparse weighting values from dense tensor
 
         if len(loss) > 0:
             loss_mean = loss.mean()
         else:
             loss_mean = 0
+        
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction.F, dim=1), ground_truth.squeeze().long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
 
         # semantic_softmax = Me.MinkowskiSoftmax(dim=1)(prediction)
         # semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
@@ -324,6 +339,10 @@ class SSCHead(nn.Module):
         else:
             loss_mean = 0
 
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction.F, dim=1), ground_truth.squeeze().long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
+
         prediction = Me.MinkowskiSoftmax(dim=1)(prediction)
         prediction = Me.SparseTensor(torch.argmax(prediction.F, 1).unsqueeze(1),
                                           coordinate_map_key=prediction.coordinate_map_key,
@@ -385,6 +404,10 @@ class SSCHead(nn.Module):
             loss_mean = loss.mean()
         else:
             loss_mean = 0
+        
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction, dim=1), ground_truth.long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
         prediction_classes = torch.argmax(prediction, dim=1)
         prediction_classes = torch.masked_fill(prediction_classes, mask == False, 0)
 
