@@ -197,11 +197,9 @@ def main():
                 if config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
 
-            # if config.MODEL.DISTILLATION:
-            #     distillation_loss = distillation_criteria(features, features_teacher)
-            #     # losses["distillation"] = distillation_loss
-            #     total_loss += distillation_loss
-            #     # losses["distillation"]: torch.Tensor = 0.0
+            if config.MODEL.DISTILLATION:
+                distillation_loss = distillation_criteria(features, features_teacher)
+                total_loss += distillation_loss * config.MODEL.DISTILLATION_WEIGHT
 
             # backward pass and learning step
             if torch.is_tensor(total_loss):
@@ -220,8 +218,8 @@ def main():
                         train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
                 if config.MODEL.SEG_HEAD:
                     train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)  
-                # if config.MODEL.DISTILLATION:
-                #     train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
+                if config.MODEL.DISTILLATION:
+                    train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
                 
 
                 log_msg["total_loss"] = total_loss.item()

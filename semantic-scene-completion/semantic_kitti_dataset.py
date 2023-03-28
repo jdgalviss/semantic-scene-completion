@@ -398,6 +398,12 @@ class SemanticKITTIDataset(Dataset):
                 xyz_multi+=translation
                 if flip_mode == 1 or flip_mode == 2:
                     xyz_multi[:,1] = -xyz_multi[:,1]
+            
+            # Update feature
+            if config.MODEL.USE_COORDS:
+                feature[:,:-1] = xyz
+                if config.MODEL.DISTILLATION:
+                    feature_multi[:,:-1] = xyz_multi
 
         '''Process Segmentation Data'''
         segmentation_collection = {}
