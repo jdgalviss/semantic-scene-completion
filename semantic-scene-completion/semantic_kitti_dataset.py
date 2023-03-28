@@ -235,7 +235,6 @@ class SemanticKITTIDataset(Dataset):
     def __getitem__(self, t):
         """ fill dictionary with available data for given index. """
         '''Load Completion Data'''
-        print(t)
         completion_collection = {}
         if self.augment:
             # stat = np.random.randint(0,6)
@@ -306,7 +305,7 @@ class SemanticKITTIDataset(Dataset):
                 split = int(split)
                 idx = int(idx)
 
-                extra_idxs  = [(idx+i*2) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*2)<self.samples_per_split[split]]
+                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<self.samples_per_split[split]]
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
 
