@@ -66,10 +66,11 @@ def sparse_cat_union(a: Me.SparseTensor, b: Me.SparseTensor):
     return new_a + new_b
 
 class BlockContent:
-    def __init__(self, data: Union[torch.Tensor, Me.SparseTensor], encoding: Optional[torch.Tensor], features2D: Optional[List[torch.Tensor]] = None):
+    def __init__(self, data: Union[torch.Tensor, Me.SparseTensor], encoding: Optional[torch.Tensor], features2D: Optional[List[torch.Tensor]] = None, features: Optional[List[Me.SparseTensor]] = None):
         self.data = data
         self.encoding = encoding
         self.features2D = features2D
+        self.features = features
 
 class UNetHybrid(nn.Module):
     def __init__(self, num_output_features: int, num_features: int = 64) -> None:
@@ -169,8 +170,20 @@ class UNetBlock(nn.Module):
             encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
         else:
             encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
-        # print("encoded shape:", encoded.shape)
+
+        # Create sparse tensor out of encoded features
+        coors_factor = int(256/encoded.shape[2])
+        print(coors_factor)
+        encoded_nz = torch.count_nonzero(encoded,dim=1)
+        coords = torch.nonzero(encoded_nz)
+        encoded_values = encoded[coords[:, 0], :, coords[:, 1], coords[:, 2], coords[:, 3]]
+        coords*=coors_factor
+        sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
+
         processed = self.submodule(BlockContent(encoded, None, features2D))
+        features = [sparse_encoded]
+        if processed.features is not None:
+            features.extend(processed.features)
         # decoded = self.decoder(processed.data) if not self.verbose else self.forward_verbose(processed.data,
         #                                                                                      self.decoder)
         # print("processed shape:", processed.data.shape)
@@ -185,7 +198,7 @@ class UNetBlock(nn.Module):
             # self.print_summary(content, decoded)
             self.verbose = False
 
-        return BlockContent(output, processed.encoding, features2D)
+        return BlockContent(output, processed.encoding, features2D, features=features)
 
     def print_summary(self, x: torch.Tensor, output: torch.Tensor):
         shape_before = list(x.shape)
@@ -283,14 +296,11 @@ class UNetBlockOuterSparse(UNetBlock):
 
         # process each input feature type individually
         # concat all processed features and process with another encoder
-        
         # process pointcloud features
         start_features = 0
         end_features = self.num_input_features
         features_input = Me.SparseTensor(content.F[:, start_features:end_features], coordinate_manager=cm, coordinate_map_key=key)
         encoded_input = self.encoder_feat(features_input) if not self.verbose else self.forward_verbose(features_input, self.encoder_feat)
-        # print("encoded_input: ", encoded_input.shape)
-        # encoded_input = Me.cat(encoded_input, encoded_features) unused!
 
         # process seg probs if present
         if config.MODEL.SEG_HEAD:
@@ -302,12 +312,17 @@ class UNetBlockOuterSparse(UNetBlock):
             # print("encoded_seg: ", encoded_seg.shape)
             encoded_input = Me.cat(encoded_input, encoded_seg)
 
+
         # process all input_features
         encoded = self.encoder(encoded_input) if not self.verbose else self.forward_verbose(encoded_input, self.encoder)
-        # print("encoded: ", encoded.shape)
         # forward to next hierarchy
         processed: BlockContent = self.submodule(BlockContent(encoded, x.encoding, x.features2D), batch_size)
 
+        # Features
+        features = [encoded]
+        features.extend(processed.features)
+
+        
         if processed is None:
             return None
         # print("\n ...back to Outter Sparse Block: ")
@@ -342,7 +357,6 @@ class UNetBlockOuterSparse(UNetBlock):
 
                 # Skip connection
                 cat = sparse_cat_union(encoded, sparse_pruned)
-                # print("cat: ", cat.shape)
                 # proxy semantic prediction
                 proxy_semantic = self.proxy_semantic_128_head(cat)
                 cat = sparse_cat_union(cat, proxy_semantic)
@@ -361,7 +375,7 @@ class UNetBlockOuterSparse(UNetBlock):
         if self.verbose:
             self.verbose = False
         
-        return BlockContent([output, [proxy_output, proxy_semantic], dense], processed.encoding)
+        return BlockContent([output, [proxy_output, proxy_semantic], dense], processed.encoding, features=features)
 
 
 class UNetBlockInner(UNetBlock):
@@ -393,6 +407,14 @@ class UNetBlockInner(UNetBlock):
             encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
         # print("\tinner encoded: ", encoded.shape)
 
+        # # Create sparse tensor out of encoded features
+        # encoded_nz = torch.count_nonzero(encoded,dim=1)
+        # coords = torch.nonzero(encoded_nz)
+        # encoded_values = encoded[coords[:, 0], :, coords[:, 1], coords[:, 2], coords[:, 3]]
+        # sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
+        features = None
+        
+
         decoded = self.decoder(encoded) if not self.verbose else self.forward_verbose(encoded, self.decoder)
         output = torch.cat([content, decoded], dim=1)
         # print("\tinner decoded: ", decoded.shape)
@@ -403,7 +425,7 @@ class UNetBlockInner(UNetBlock):
         # print("\tfeature shape: ", x.features2D[self.current_level].shape)
         if self.verbose:
             self.verbose = False
-        return BlockContent(output, encoded)
+        return BlockContent(output, encoded, features=features)
 
 
 
@@ -527,13 +549,18 @@ class UNetBlockHybridSparse(UNetBlockOuter):
         encoded = Me.MinkowskiPruning()(encoded, mask)
 
         if len(encoded.C) == 0:
-            return BlockContent([None, None], content, x.features2D)
+            return BlockContent([None, None], content, x.features2D, features=[])
 
         # print("encoded: ", encoded.shape)
         dense, _, _ = encoded.dense(shape, min_coordinate=min_coordinate)
         # print("dense: ", dense.shape)
         # next hierarchy
         processed: BlockContent = self.submodule(BlockContent(dense, None, x.features2D))
+
+        features = [encoded]
+        features.extend(processed.features)
+
+
         # print("\n...back to Hybrid sparse block")
         # print("processed.data: " , processed.data.shape)
         # decode
@@ -592,7 +619,7 @@ class UNetBlockHybridSparse(UNetBlockOuter):
             output = None
         if self.verbose:
             self.verbose = False
-        return BlockContent([output, proxy_output], processed.encoding)
+        return BlockContent([output, proxy_output], processed.encoding, features=features)
 
 class Sparsify:
     def __call__(self, occupancy: torch.Tensor, features=None, *args, **kwargs) -> Tuple[np.array, np.array, np.array]:
