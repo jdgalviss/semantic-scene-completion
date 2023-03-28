@@ -125,16 +125,19 @@ class SemanticKITTIDataset(Dataset):
             # Read calib file
             calib_path = complete_path.replace('voxels','calib.txt')
             calib = self.read_calib(calib_path)
-            T_inv = np.linalg.inv(calib['Tr'])
+            # T_inv = np.linalg.inv(calib['Tr'])
+            Tr = calib['Tr']
+            Tr_inv = np.linalg.inv(calib['Tr'])
+
             with open(poses_path, 'r') as f:
                 for line in f.readlines():
                     if line == '\n':
                         break
-                    values = line.split()
-                    values = np.float32(values).reshape(3,4)
-                    values = np.concatenate([np.array(values),np.array([0.,0,0.,1.]).reshape(1,4)],axis=0)
-                    values = np.matmul(T_inv,values)
-                    poses_split.append(values)
+                    pose = line.split()
+                    pose = np.float32(pose).reshape(3,4)
+                    pose = np.concatenate([np.array(pose),np.array([0.,0,0.,1.]).reshape(1,4)],axis=0)
+                    pose = np.matmul(Tr_inv,np.matmul(pose,Tr))
+                    poses_split.append(pose)
             self.samples_per_split.append(len(poses_split))
             self.all_poses.append(np.array(poses_split))
         
@@ -232,6 +235,7 @@ class SemanticKITTIDataset(Dataset):
     def __getitem__(self, t):
         """ fill dictionary with available data for given index. """
         '''Load Completion Data'''
+        print(t)
         completion_collection = {}
         if self.augment:
             # stat = np.random.randint(0,6)
@@ -302,8 +306,10 @@ class SemanticKITTIDataset(Dataset):
                 split = int(split)
                 idx = int(idx)
 
-                extra_idxs  = [idx+i for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if idx+i<self.samples_per_split[split]]
+                extra_idxs  = [(idx+i*2) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*2)<self.samples_per_split[split]]
                 xyz_multi = xyz.copy()
+                xyz_multi_raw = xyz.copy()
+
                 remissions_multi = remissions.copy()
                 label_multi = label.copy()
                 id_multi = np.zeros_like(label)
@@ -319,19 +325,22 @@ class SemanticKITTIDataset(Dataset):
                     xyz_aux = scan.points
                     label_aux = scan.sem_label
                     label_aux = self.seg_remap_lut[label_aux]
+                    xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
                     # Transform to the same coordinate system as the first frame using homogeneous transformations
                     Ti = self.all_poses[split][i]
-                    T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
+                    # T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
+                    T = np.matmul(np.linalg.inv(T0),Ti)
                     xyz_aux_h = np.concatenate([xyz_aux, np.ones((xyz_aux.shape[0], 1))], axis=1)
                     xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
                     xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
+
                     remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
                     label_multi = np.concatenate((label_multi, label_aux), axis=0)
                     id_multi = np.concatenate((id_multi, count*np.ones_like(label_aux)), axis=0)
                     count += 1
 
                 if config.MODEL.USE_COORDS:
-                    feature_multi = np.concatenate([xyz_multi, remissions_multi.reshape(-1, 1)], 1)
+                    feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
                 else:
                     feature_multi = remissions_multi.reshape(-1, 1)
                 # Add noise augmentation to input data
@@ -408,9 +417,9 @@ class SemanticKITTIDataset(Dataset):
         })
 
         if config.MODEL.DISTILLATION:
-            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi)#, m, random1, random2)
+            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
             segmentation_collection.update({
-                'id_multi': id_multi,
+                'id_multi': id_multi[idxs_multi],
                 'coords_multi': coords_multi,
                 'feature_multi': feature_multi,
                 'label_multi': label_multi,
