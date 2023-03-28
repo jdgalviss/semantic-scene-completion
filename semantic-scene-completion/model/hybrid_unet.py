@@ -172,16 +172,15 @@ class UNetBlock(nn.Module):
             encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
 
         # Create sparse tensor out of encoded features
-        coors_factor = int(256/encoded.shape[2])
-        print(coors_factor)
-        encoded_nz = torch.count_nonzero(encoded,dim=1)
-        coords = torch.nonzero(encoded_nz)
-        encoded_values = encoded[coords[:, 0], :, coords[:, 1], coords[:, 2], coords[:, 3]]
-        coords*=coors_factor
-        sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
+        # coors_factor = int(256/encoded.shape[2])
+        # encoded_nz = torch.count_nonzero(encoded,dim=1)
+        # coords = torch.nonzero(encoded_nz)
+        # encoded_values = encoded[coords[:, 0], :, coords[:, 1], coords[:, 2], coords[:, 3]]
+        # coords*=coors_factor
+        # sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
 
         processed = self.submodule(BlockContent(encoded, None, features2D))
-        features = [sparse_encoded]
+        features = [encoded]
         if processed.features is not None:
             features.extend(processed.features)
         # decoded = self.decoder(processed.data) if not self.verbose else self.forward_verbose(processed.data,

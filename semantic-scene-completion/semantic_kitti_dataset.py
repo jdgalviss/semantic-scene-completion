@@ -90,13 +90,15 @@ class SemanticKITTIDataset(Dataset):
                                14: 'fence', 15: 'vegetation', 16: 'trunk', 17: 'terrain', 18: 'pole',
                                19: 'traffic-sign', 20: 'other-object', 21: 'other-object'}
         # Iterate over all sequences present in split
+        self.samples_per_split = []
+        self.all_poses = []
+
         for sequence in SPLIT_SEQUENCES[split]:
             # Form path to voxels in split
             complete_path = os.path.join(config.GENERAL.DATASET_DIR, "sequences", sequence, "voxels")
             if not os.path.exists(complete_path): raise RuntimeError("Voxel directory missing: " + complete_path)
 
             files = os.listdir(complete_path)
-            
 
             for ext in SPLIT_FILES[split]:
                 # Obtain paths for all files with given extansion and sort
@@ -117,6 +119,24 @@ class SemanticKITTIDataset(Dataset):
             self.filenames.extend(
                 sorted([(sequence, os.path.splitext(f)[0]) for f in files if f.endswith(SPLIT_FILES[split][0])]))
             
+            ## poses
+            poses_split = []
+            poses_path = complete_path.replace('voxels','poses.txt')
+            # Read calib file
+            calib_path = complete_path.replace('voxels','calib.txt')
+            calib = self.read_calib(calib_path)
+            T_inv = np.linalg.inv(calib['Tr'])
+            with open(poses_path, 'r') as f:
+                for line in f.readlines():
+                    if line == '\n':
+                        break
+                    values = line.split()
+                    values = np.float32(values).reshape(3,4)
+                    values = np.concatenate([np.array(values),np.array([0.,0,0.,1.]).reshape(1,4)],axis=0)
+                    values = np.matmul(T_inv,values)
+                    poses_split.append(values)
+            self.samples_per_split.append(len(poses_split))
+            self.all_poses.append(np.array(poses_split))
         
         if(do_overfit):
             filenames_list = []
@@ -125,6 +145,7 @@ class SemanticKITTIDataset(Dataset):
             for i in idxs:
                 filenames_list.append(self.filenames[i])
             self.filenames = filenames_list
+        
         
         self.num_files = len(self.filenames)
         remapdict = kitti_config["learning_map"]
@@ -177,6 +198,36 @@ class SemanticKITTIDataset(Dataset):
 
     def __len__(self):
         return self.num_files
+    
+    @staticmethod
+    def read_calib(calib_path):
+        """
+        :param calib_path: Path to a calibration text file.
+        :return: dict with calibration matrices.
+        """
+        calib_all = {}
+        with open(calib_path, 'r') as f:
+            for line in f.readlines():
+                if line == '\n':
+                    break
+                key, value = line.split(':', 1)
+                calib_all[key] = np.array([float(x) for x in value.split()])
+
+        # reshape matrices
+        calib_out = {}
+        calib_out['P2'] = calib_all['P2'].reshape(3, 4)  # 3x4 projection matrix for left camera
+        calib_out['Tr'] = np.identity(4)  # 4x4 matrix
+        calib_out['Tr'][:3, :4] = calib_all['Tr'].reshape(3, 4)
+
+        return calib_out
+    
+    def points_in_range(self,xyz,labels,remissions):
+        keep_idxs = np.where((xyz[:, 0] >= config.COMPLETION.POINT_CLOUD_RANGE[0]) & (xyz[:, 0] <= config.COMPLETION.POINT_CLOUD_RANGE[3]) &
+                             (xyz[:, 1] >= config.COMPLETION.POINT_CLOUD_RANGE[1]) & (xyz[:, 1] <= config.COMPLETION.POINT_CLOUD_RANGE[4]) &
+                             (xyz[:, 2] >= config.COMPLETION.POINT_CLOUD_RANGE[2]) & (xyz[:, 2] <= config.COMPLETION.POINT_CLOUD_RANGE[5]))[0]
+        return xyz[keep_idxs],labels[keep_idxs],remissions[keep_idxs]
+
+    
 
     def __getitem__(self, t):
         """ fill dictionary with available data for given index. """
@@ -235,6 +286,8 @@ class SemanticKITTIDataset(Dataset):
             label = scan.sem_label
             label = self.seg_remap_lut[label]
 
+            # xyz, remissions, label = self.points_in_range(xyz,remissions,label)
+
             if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
             else:
@@ -243,6 +296,47 @@ class SemanticKITTIDataset(Dataset):
             # Add noise augmentation to input data
             if self.augment:
                 feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
+            
+            if config.MODEL.DISTILLATION:
+                split, idx = self.filenames[t]
+                split = int(split)
+                idx = int(idx)
+
+                extra_idxs  = [idx+i for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if idx+i<self.samples_per_split[split]]
+                xyz_multi = xyz.copy()
+                remissions_multi = remissions.copy()
+                label_multi = label.copy()
+                T0 = self.all_poses[split][idx]
+                for i in extra_idxs:
+                    aux_point_name = seg_point_name.replace("{:06d}.bin".format(idx), "{:06d}.bin".format(i))
+                    aux_label_name = seg_label_name.replace("{:06d}.".format(idx), "{:06d}.".format(i))
+                    scan.open_scan(aux_point_name)
+                    scan.open_label(aux_label_name) # TODO: remove to improve memory usage
+
+                    remissions_aux = scan.remissions
+                    xyz_aux = scan.points
+                    label_aux = scan.sem_label
+                    label_aux = self.seg_remap_lut[label_aux]
+                    # Transform to the same coordinate system as the first frame using homogeneous transformations
+                    Ti = self.all_poses[split][i]
+                    T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
+                    xyz_aux_h = np.concatenate([xyz_aux, np.ones((xyz_aux.shape[0], 1))], axis=1)
+                    xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
+                    xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
+                    remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
+                    label_multi = np.concatenate((label_multi, label_aux), axis=0)
+
+                if config.MODEL.USE_COORDS:
+                    feature_multi = np.concatenate([xyz_multi, remissions_multi.reshape(-1, 1)], 1)
+                else:
+                    feature_multi = remissions_multi.reshape(-1, 1)
+                # Add noise augmentation to input data
+                if self.augment:
+                    feature_multi += np.random.randn(*feature_multi.shape)*config.TRAIN.NOISE_LEVEL
+                # print("t:", t)
+                # poses = self.read_poses(poses_file)
+                # proj_matrix = np.matmul(calib['P2'], calib['Tr'])
+            
         else:
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
             scan.open_scan(seg_point_name)
@@ -256,7 +350,6 @@ class SemanticKITTIDataset(Dataset):
             else:
                 feature = remissions.reshape(-1, 1)
             label = None
-        
 
         # Rotate augmentation input
         if self.augment:
@@ -276,10 +369,26 @@ class SemanticKITTIDataset(Dataset):
             xyz+=translation
             if flip_mode == 1 or flip_mode == 2:
                 xyz[:,1] = -xyz[:,1]
+            
+            if config.MODEL.DISTILLATION:
+                # Drop points randomly from pointcloud
+                keep_idxs = np.random.uniform(size=xyz_multi.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
+                xyz_multi = xyz_multi[keep_idxs]
+                label_multi = label_multi[keep_idxs]
+                feature_multi = feature_multi[keep_idxs]
+                # rotate
+                xyz_multi = np.matmul(xyz_multi,r)
+                # Add translations
+                translation = (np.random.normal(size=xyz_multi.shape))*0.04
+                mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
+                translation[mask] = 0.0
+                xyz_multi+=translation
+                if flip_mode == 1 or flip_mode == 2:
+                    xyz_multi[:,1] = -xyz_multi[:,1]
 
         '''Process Segmentation Data'''
         segmentation_collection = {}
-        coords, label, feature, idxs = self.process_seg_data(xyz, label, feature)
+        coords, label, feature, idxs, m, random1, random2 = self.process_seg_data(xyz, label, feature)
         # coords = coords[:, [3,0,1,2]]
         # Normalize segmentation features
         # if config.MODEL.USE_COORDS:
@@ -287,13 +396,19 @@ class SemanticKITTIDataset(Dataset):
         #     feature[:,1] /= 80.0
         #     feature[:,2] /= 10.0
             # feature[:,3] = feature[:,3]/0.5 - 1.0
-        
-        
         segmentation_collection.update({
             'coords': coords,
             'label': label,
             'feature': feature,
         })
+
+        if config.MODEL.DISTILLATION:
+            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
+            segmentation_collection.update({
+                'coords_multi': coords_multi,
+                'feature_multi': feature_multi,
+                'label_multi': label_multi,
+            })
 
         '''Generate Alignment Data'''
         aliment_collection = {}
@@ -314,6 +429,7 @@ class SemanticKITTIDataset(Dataset):
         # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
         voxel_centers += torch.Tensor(self.voxel_generator.coors_range[0:3])
+        
         # Input/Output for 2D BEV prediction model
         intensity_voxels = torch.zeros((1,256,256,32))
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
@@ -334,23 +450,44 @@ class SemanticKITTIDataset(Dataset):
             'input2d': input2d,
             'bev_labels': bev_labels,
         })
+        if config.MODEL.DISTILLATION:
+            xyz_multi = xyz_multi[idxs_multi]
+            pc_multi = torch.from_numpy(np.concatenate([xyz_multi, np.arange(len(xyz_multi)).reshape(-1,1), feature_multi],-1)) # [x,y,z,idx,remission]
+            voxels_multi, coords_multi, num_points_per_voxel_multi = self.voxel_generator(pc_multi)
+            features_multi = torch.sum(voxels_multi[:,:,-1], dim=1) / torch.sum(voxels_multi[:,:,-1] != 0, dim=1).clamp(min=1).float()
+            coords_multi = coords_multi[:, [2, 1, 0]]
+            features_multi = features_multi[coords_multi[:,2] < 32] # clamp to 32
+            coords_multi = coords_multi[coords_multi[:,2] < 32,:] # clamp to 32
+            voxel_centers_multi = (torch.flip(coords_multi,[-1]) + 0.5)
+            coords_multi = coords_multi.long()
+            voxel_centers_multi *= torch.Tensor(self.voxel_generator.vsize)
+            voxel_centers_multi += torch.Tensor(self.voxel_generator.coors_range[0:3])
+            aliment_collection.update({
+                'voxels_multi': voxels_multi,
+                'coords_multi': coords_multi,
+                'voxel_centers_multi': voxel_centers_multi,
+                'num_points_per_voxel_multi': num_points_per_voxel_multi,
+                'features_multi': features_multi,
+            })            
         # if self.split == "test":
         #     return aliment_collection
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
-    def process_seg_data(self, xyz, label, feature):
+    def process_seg_data(self, xyz, label, feature, m=None, random1=None, random2=None):
         coords = np.ascontiguousarray(xyz - xyz.mean(0))
-        m = np.eye(3) + np.random.randn(3, 3) * 0.1
-        m[0][0] *= np.random.randint(0, 2) * 2 - 1
-        m *= config.SEGMENTATION.SCALE
-        theta = np.random.rand() * 2 * math.pi
-        m = np.matmul(m, [[math.cos(theta), math.sin(theta), 0], [-math.sin(theta), math.cos(theta), 0], [0, 0, 1]])
+        if m is None:
+            m = np.eye(3) + np.random.randn(3, 3) * 0.1
+            m[0][0] *= np.random.randint(0, 2) * 2 - 1
+            m *= config.SEGMENTATION.SCALE
+            theta = np.random.rand() * 2 * math.pi
+            m = np.matmul(m, [[math.cos(theta), math.sin(theta), 0], [-math.sin(theta), math.cos(theta), 0], [0, 0, 1]])
+            random1 = np.random.rand(3)
+            random2 = np.random.rand(3)
         coords = np.matmul(coords, m)
-
-        m = coords.min(0)
+        minimum = coords.min(0)
         M = coords.max(0)
-        offset = - m + np.clip(config.SEGMENTATION.FULL_SCALE[1] - M + m - 0.001, 0, None) * np.random.rand(3) + np.clip(
-            config.SEGMENTATION.FULL_SCALE[1] - M + m + 0.001, None, 0) * np.random.rand(3)
+        offset = - minimum + np.clip(config.SEGMENTATION.FULL_SCALE[1] - M + minimum - 0.001, 0, None) * random1 + np.clip(
+            config.SEGMENTATION.FULL_SCALE[1] - M + minimum + 0.001, None, 0) * random2
         coords += offset
         idxs = (coords.min(1) >= 0) * (coords.max(1) < config.SEGMENTATION.FULL_SCALE[1])
         coords = coords[idxs]
@@ -364,8 +501,7 @@ class SemanticKITTIDataset(Dataset):
         coords = torch.Tensor(coords).long()
         feature = torch.Tensor(feature)
 
-        return coords, label, feature, idxs
-
+        return coords, label, feature, idxs, m, random1, random2
 
     def data_augmentation(self, t, flip_mode, rot_zyx=[0,0,0], level=64, inp = False, inverse=False):
         rot_zyx_flipped =  rot_zyx.copy()# TODO (juan.galvis): correction for unwanted flip
@@ -455,6 +591,16 @@ def Merge(tbl):
     offset = 0
     input_vx = []
     stats = []
+
+    if config.MODEL.DISTILLATION:
+        voxel_centers_multi = []
+        complet_coords_multi = []
+        complet_features_multi = []
+        seg_coords_multi = []
+        seg_features_multi = []
+        seg_labels_multi = []
+        complet_invoxel_features_multi = []
+        offset_multi = 0
     for idx, example in enumerate(tbl):
         filename, completion_collection, aliment_collection, segmentation_collection = example
         '''File Name'''
@@ -487,13 +633,28 @@ def Merge(tbl):
         complet_invoxel_feature = aliment_collection['voxels']
         complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
-        
         offset += seg_coord.shape[0]
-
         complet_features.append(aliment_collection['features'])
-
         input2d.append(aliment_collection['input2d'])
         bev_labels.append(aliment_collection['bev_labels'])
+
+        if config.MODEL.DISTILLATION:
+            seg_coord_multi = segmentation_collection['coords_multi']
+            seg_coords_multi.append(torch.cat([torch.LongTensor(seg_coord_multi.shape[0], 1).fill_(idx), seg_coord_multi], 1))
+            seg_features_multi.append(segmentation_collection['feature_multi'])
+            seg_labels_multi.append(segmentation_collection['label_multi'])
+
+            complet_coord_multi = aliment_collection['coords_multi']
+            complet_coord_multi = torch.cat([torch.Tensor(complet_coord_multi.shape[0], 1).fill_(idx), complet_coord_multi.float()], 1)
+            complet_coords_multi.append(complet_coord_multi)
+            complet_features_multi.append(aliment_collection['features_multi'])
+            voxel_centers_multi.append(torch.Tensor(aliment_collection['voxel_centers_multi']))
+            complet_invoxel_feature_multi = aliment_collection['voxels_multi']
+            complet_invoxel_feature_multi[:, :, -2] += offset_multi  # voxel-to-point mapping in the last column
+            complet_invoxel_features_multi.append(torch.Tensor(complet_invoxel_feature_multi))
+            offset_multi += seg_coord_multi.shape[0]
+            
+
     
     input2d = torch.cat(input2d, 0)
     bev_labels = torch.cat(bev_labels, 0)
@@ -501,21 +662,7 @@ def Merge(tbl):
     # complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
     complet_features = torch.cat(complet_features, 0)
 
-    # seg_inputs = {'seg_coords': torch.cat(seg_coords, 0),
-    #               'seg_labels': torch.cat(seg_labels, 0),
-    #               'seg_features': torch.cat(seg_features, 0)
-    #               }
     
-
-
-    # complet_inputs = {'complet_coords': torch.cat(complet_coords, 0),
-    #                   'complet_input': torch.cat(input_vx, 0),
-    #                   'voxel_centers': torch.cat(voxel_centers, 0),
-    #                   'complet_invalid': torch.cat(complet_invalid, 0),
-    #                   'complet_labels': torch.cat(complet_labels, 0),
-    #                   'state': stats,
-    #                   'complet_invoxel_features': torch.cat(complet_invoxel_features, 0)
-    #                   }
     one = torch.ones([1])
     zero = torch.zeros([1])
     complet_labels = torch.cat(complet_labels, 0)
@@ -559,6 +706,7 @@ def Merge(tbl):
     # complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
     complet_valid = complet_labels != 255
 
+    
 
 
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
@@ -579,6 +727,20 @@ def Merge(tbl):
     complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
     complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
     complet_inputs.add_field("frustum_mask", frustum_mask)
+    
+    if config.MODEL.DISTILLATION:
+        complet_coords_multi = torch.cat(complet_coords_multi, 0)
+        complet_features_multi = torch.cat(complet_features_multi, 0)
+        voxel_centers_multi = torch.cat(voxel_centers_multi, 0)
+        complet_invoxel_features_multi = torch.cat(complet_invoxel_features_multi, 0)
+
+        complet_inputs.add_field("complet_coords_multi", complet_coords_multi.unsqueeze(0))
+        complet_inputs.add_field("complet_features_multi", complet_features_multi.unsqueeze(0))
+        complet_inputs.add_field("voxel_centers_multi", voxel_centers_multi.unsqueeze(0))
+        complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
+        complet_inputs.add_field("seg_features_multi", torch.cat(seg_features_multi, 0))
+        complet_inputs.add_field("seg_labels_multi", torch.cat(seg_labels_multi, 0))
+        complet_inputs.add_field("complet_invoxel_features_multi", complet_invoxel_features_multi)
 
 
     # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))

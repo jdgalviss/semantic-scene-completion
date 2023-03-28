@@ -155,6 +155,8 @@ def input_to_cmap2d(tensor):
     return output
 
 def plot_3d_pointcloud(coords_tensor, labels_tensor, input = False):
+    labels = labels_tensor.int().cpu().detach().numpy()
+    coords = coords_tensor.int().cpu().detach().numpy()
     if input:
         viridis = cm.get_cmap('plasma', 128)
         classes_colors2 = np.uint8(np.array(viridis.colors)*255.0)
@@ -163,17 +165,16 @@ def plot_3d_pointcloud(coords_tensor, labels_tensor, input = False):
         # color_0 = np.array([[0,0,0]])
         # classes_colors2 = np.concatenate((color_0,classes_colors))
 
-    labels = labels_tensor.int().cpu().detach().numpy()
-    coords = coords_tensor.int().cpu().detach().numpy()
-    coords = coords[labels!=-100]
-    labels = labels[labels!=-100]
+        
+        coords = coords[labels!=-100]
+        labels = labels[labels!=-100]
 
-    print(np.unique(labels))
+        print(np.unique(labels))
 
     colors = classes_colors2[labels]
     colors = np.float32(colors)/255.0
 
-    fig = plt.figure(figsize=(12, 8))
+    fig = plt.figure(figsize=(24, 16))
     ax = fig.add_subplot(projection='3d')
     ax.set_box_aspect((np.ptp(coords[:,0]), np.ptp(coords[:,1]), np.ptp(coords[:,2])))  # aspect ratio is 1:1:1 in data space
     ax.scatter(coords[:,0], coords[:,1], coords[:,2], s=0.5, c=colors, edgecolors='k',linewidths=0.1)

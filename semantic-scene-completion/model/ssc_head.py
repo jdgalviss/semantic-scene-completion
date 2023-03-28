@@ -23,8 +23,9 @@ class Lovasz_loss(nn.Module):
         return lovasz_softmax(probas, labels, ignore=self.ignore)
     
 class SSCHead(nn.Module):
-    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
+    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1, suffix=""):
         super().__init__()
+        self.suffix = suffix
         self._is_train_mod = True
         self.model = UNetHybrid(num_output_channels, unet_features)
         
@@ -58,11 +59,11 @@ class SSCHead(nn.Module):
     def forward(self, targets, seg_features, weights, features2D=None, is_train_mod=True):
         self._is_train_mod = is_train_mod
         # Put coordinates in the right order
-        complet_coords = collect(targets, "complet_coords").squeeze()
+        complet_coords = collect(targets, "complet_coords{}".format(self.suffix)).squeeze()
         
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(targets, "complet_features").transpose(0,1)
+        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(targets, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         complet_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
@@ -104,13 +105,15 @@ class SSCHead(nn.Module):
 
         unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
+        features = unet_output.features
+
 
         losses = {}
         results = {}
         
         # level-64
         if predictions[2] is None:
-            return {}, {}
+            return {}, {}, {}
         losses_64, results_64 = self.forward_64(predictions[2], targets, complet_valid, weights)
         
         losses.update(losses_64)
@@ -118,7 +121,7 @@ class SSCHead(nn.Module):
 
         # level-128
         if predictions[1] is None:
-            return losses, results
+            return losses, results, features
         losses_128, results_128 = self.forward_128(predictions[1], targets, weights)
         
         losses.update(losses_128)
@@ -126,7 +129,7 @@ class SSCHead(nn.Module):
 
         #leve-256
         if predictions[0] is None:
-            return losses, results
+            return losses, results, features
         
         # Occupancy
         losses_256, results_256, features_256 = self.forward_256(predictions[0], targets, weights)
@@ -139,8 +142,9 @@ class SSCHead(nn.Module):
             losses.update(losses_output)
             results.update(results_output)
 
-
-        return losses, results
+        if self.suffix == "_multi":
+            features = features.copy()
+        return losses, results, features
 
     def forward_output(self, predictions: List[Me.SparseTensor], targets, weights) -> Tuple[Dict, Dict]:
         hierarchy_losses = {}
@@ -415,12 +419,12 @@ class SSCHead(nn.Module):
 
     def inference(self, inputs, seg_features, features2D=None,):
         # Put coordinates in the right order
-        complet_coords = collect(inputs,"complet_coords").squeeze()
+        complet_coords = collect(inputs,"complet_coords{}".format(self.suffix)).squeeze()
         batch_size = len(torch.unique(complet_coords[:,0]))
 
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(inputs, "complet_features").transpose(0,1)
+        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(inputs, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         sparse_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),

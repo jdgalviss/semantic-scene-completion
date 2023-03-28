@@ -12,9 +12,12 @@ from torch.nn import functional as F
 
 
 class MyModel(nn.Module):
-    def __init__(self, **kwargs):
+    def __init__(self, is_teacher=False, **kwargs):
         super(MyModel, self).__init__()
         self.complet_sigma = nn.Parameter(torch.Tensor(6).uniform_(0.2, 1), requires_grad=True)
+        self.is_teacher = is_teacher
+        self.suffix = "_multi" if self.is_teacher else ""
+
         if config.MODEL.SEG_HEAD:
             if config.SEGMENTATION.SEG_MODEL == "2DPASS":
                 self.seg_model = SparseSegNet2DPASS().cuda()
@@ -29,7 +32,7 @@ class MyModel(nn.Module):
 
         else:
             self.seg_sigma = None
-        self.ssc_model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
+        self.ssc_model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES, suffix=self.suffix)
 
 
     def forward(self, batch, seg_weights=None, compl_weights=None):
@@ -37,11 +40,11 @@ class MyModel(nn.Module):
         seg_feat = None
         if config.MODEL.SEG_HEAD:
             
-            complet_invoxel_features = collect(batch, "complet_invoxel_features")
-            voxel_centers = collect(batch, "voxel_centers")
-            seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords"), 
-                                               feat=collect(batch, "seg_features"),
-                                               label=collect(batch, "seg_labels"),
+            complet_invoxel_features = collect(batch, "complet_invoxel_features{}".format(self.suffix))
+            voxel_centers = collect(batch, "voxel_centers{}".format(self.suffix))
+            seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords{}".format(self.suffix)), 
+                                               feat=collect(batch, "seg_features{}".format(self.suffix)),
+                                               label=collect(batch, "seg_labels{}".format(self.suffix)),
                                                weights=seg_weights)
 
             if not config.SEGMENTATION.TRAIN:
@@ -60,19 +63,19 @@ class MyModel(nn.Module):
             seg_out = {"pc_seg": seg_out} #, "seg_feat": seg_feat}
             losses.update(loss)
             results.update(seg_out)
-        loss, result = self.ssc_model(batch, seg_feat, compl_weights)
+        loss, result, features = self.ssc_model(batch, seg_feat, compl_weights)
         losses.update(loss)
         results.update(result)
-        return results, losses, [self.seg_sigma, self.complet_sigma]
+        return results, losses, features, [self.seg_sigma, self.complet_sigma]
     
     def inference(self,batch):
         results = {}
         seg_feat = None
         if config.MODEL.SEG_HEAD:
-            complet_invoxel_features = collect(batch, "complet_invoxel_features")
-            voxel_centers = collect(batch, "voxel_centers")
-            seg_out, seg_feat = self.seg_model.inference(coords=collect(batch, "seg_coords"), 
-                                               feat=collect(batch, "seg_features"))
+            complet_invoxel_features = collect(batch, "complet_invoxel_features{}".format(self.suffix))
+            voxel_centers = collect(batch, "voxel_centers{}".format(self.suffix))
+            seg_out, seg_feat = self.seg_model.inference(coords=collect(batch, "seg_coords{}".format(self.suffix)), 
+                                               feat=collect(batch, "seg_features{}".format(self.suffix)))
 
             # pool feature vector before passing it as input to completion network
 

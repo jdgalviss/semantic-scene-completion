@@ -41,21 +41,18 @@ def main():
     
     # SSC Model
     model = MyModel().to(device)
-    
-    optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
-                                        betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
-                                        weight_decay=config.SOLVER.WEIGHT_DECAY)
-    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
         distillation_criteria = DSKDLoss()
         # Optimizer
-        teacher_optimizer = torch.optim.Adam(model_teacher.parameters(), config.SOLVER.BASE_LR,
+        optimizer = torch.optim.Adam(list(model.parameters())+list(model_teacher.parameters()), config.SOLVER.BASE_LR,
                                             betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                             weight_decay=config.SOLVER.WEIGHT_DECAY)
-        lr_scheduler_teacher = torch.optim.lr_scheduler.ExponentialLR(teacher_optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
+                                            betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
+                                            weight_decay=config.SOLVER.WEIGHT_DECAY)
+    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
         
 
     # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
@@ -110,55 +107,21 @@ def main():
         # Training
         for i, batch in enumerate(pbar):
             model.train()
-            _, complet_inputs, _, _ = batch
-            optimizer.zero_grad()
-
+            total_loss: torch.Tensor = 0.0
             if config.MODEL.DISTILLATION:
                 model_teacher.train()
-                teacher_optimizer.zero_grad()
-                _, losses_teacher, features_teacher, sigma_teacher = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
-                total_loss: torch.Tensor = 0.0
-                factor_compl_teacher = 1.0 / (sigma_teacher[1]**2)
-                total_loss += factor_compl_teacher[0] * losses_teacher["occupancy_64"] + 2 * torch.log(sigma_teacher[1][0]) + \
-                            factor_compl_teacher[1] * losses_teacher["semantic_64"] + 2 * torch.log(sigma_teacher[1][1])
-                if config.MODEL.SEG_HEAD:
-                    factor_seg_teacher = 1.0 / (sigma_teacher[0]**2)
-                    total_loss += factor_seg_teacher[0] * 0.1 * losses_teacher["pc_seg"] + 2 * torch.log(sigma_teacher[0][0])
-                    # train_writer.add_scalar('factors/seg_pc_teacher', factor_seg_teacher.detach().cpu(), iteration)
-                if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl_teacher[2] * losses_teacher["occupancy_128"] + 2 * torch.log(sigma_teacher[1][2]) + \
-                                    factor_compl_teacher[3] * losses_teacher["semantic_128"] + 2 * torch.log(sigma_teacher[1][3])
-                if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl_teacher[4] * losses_teacher["occupancy_256"] + 2 * torch.log(sigma_teacher[1][4])
-                if config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl_teacher[5] * losses_teacher["semantic_256"] + 2 * torch.log(sigma_teacher[1][5])
-
-                if torch.is_tensor(total_loss):
-                    total_loss.backward()
-                    teacher_optimizer.step()
-                    # logging
-                    for k, v in losses_teacher.items():
-                        if "256" in k:
-                            train_writer.add_scalar('train_256/teacher_'+k, v.detach().cpu(), iteration)
-                        elif "128" in k:
-                            train_writer.add_scalar('train_128/teacher_'+k, v.detach().cpu(), iteration)
-                        elif "64" in k:
-                            train_writer.add_scalar('train_64/teacher_'+k, v.detach().cpu(), iteration)
-                    if config.MODEL.SEG_HEAD:
-                        train_writer.add_scalar('train/seg_pc_teacher', losses_teacher["pc_seg"].detach().cpu(), iteration)  
-
-                train_writer.add_scalar('train/total_loss_teacher', total_loss.detach().cpu(), iteration)
-                features_teacher = [f.detach() for f in features_teacher]
-
-                del total_loss, losses_teacher
-                torch.cuda.empty_cache()
-
-            total_loss: torch.Tensor = 0.0
+            optimizer.zero_grad()
             # Get tensors from batch
+            _, complet_inputs, _, _ = batch
 
             # forward pass
             _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
-            
+            if config.MODEL.DISTILLATION:
+                _, losses_teacher, features_teacher, sigma_teacher = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
+                features_teacher = [f.detach() for f in features_teacher]
+                distillation_loss = distillation_criteria(features, features_teacher)
+                losses_teacher["distillation"] = distillation_loss
+                # losses_teacher["distillation"]: torch.Tensor = 0.0
 
 
             if config.TRAIN.UNCERTAINTY_LOSS:
@@ -184,7 +147,22 @@ def main():
                 train_writer.add_scalar('factors/complt_256', factor_compl[4].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/seg_256', factor_compl[5].detach().cpu(), iteration)
 
-                
+                if config.MODEL.DISTILLATION:
+                    total_loss += losses_teacher["distillation"]
+                    factor_compl_teacher = 1.0 / (sigma_teacher[1]**2)
+                    total_loss += factor_compl_teacher[0] * losses_teacher["occupancy_64"] + 2 * torch.log(sigma_teacher[1][0]) + \
+                                factor_compl_teacher[1] * losses_teacher["semantic_64"] + 2 * torch.log(sigma_teacher[1][1])
+                    if config.MODEL.SEG_HEAD:
+                        factor_seg_teacher = 1.0 / (sigma_teacher[0]**2)
+                        total_loss += factor_seg_teacher[0] * 0.1 * losses_teacher["pc_seg"] + 2 * torch.log(sigma_teacher[0][0])
+                        # train_writer.add_scalar('factors/seg_pc_teacher', factor_seg_teacher.detach().cpu(), iteration)
+                    if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[2] * losses_teacher["occupancy_128"] + 2 * torch.log(sigma_teacher[1][2]) + \
+                                        factor_compl_teacher[3] * losses_teacher["semantic_128"] + 2 * torch.log(sigma_teacher[1][3])
+                    if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[4] * losses_teacher["occupancy_256"] + 2 * torch.log(sigma_teacher[1][4])
+                    if config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[5] * losses_teacher["semantic_256"] + 2 * torch.log(sigma_teacher[1][5])
 
             else:
                 total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
@@ -196,12 +174,6 @@ def main():
                     total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
                 if config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
-
-            if config.MODEL.DISTILLATION:
-                distillation_loss = distillation_criteria(features, features_teacher)
-                # losses["distillation"] = distillation_loss
-                total_loss += distillation_loss
-                # losses["distillation"]: torch.Tensor = 0.0
 
             # backward pass and learning step
             if torch.is_tensor(total_loss):
@@ -221,19 +193,28 @@ def main():
                 if config.MODEL.SEG_HEAD:
                     train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)  
                 if config.MODEL.DISTILLATION:
-                    train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
-                
+                    for k, v in losses_teacher.items():
+                        if "256" in k:
+                            train_writer.add_scalar('train_256/teacher_'+k, v.detach().cpu(), iteration)
+                        elif "128" in k:
+                            train_writer.add_scalar('train_128/teacher_'+k, v.detach().cpu(), iteration)
+                        elif "64" in k:
+                            train_writer.add_scalar('train_64/teacher_'+k, v.detach().cpu(), iteration)
+                    train_writer.add_scalar('train/distillation', losses_teacher["distillation"].detach().cpu(), iteration)  
+                    if config.MODEL.SEG_HEAD:
+                        train_writer.add_scalar('train/seg_pc_teacher', losses_teacher["pc_seg"].detach().cpu(), iteration)  
 
                 log_msg["total_loss"] = total_loss.item()
                 pbar.set_postfix(log_msg)
             
             train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
             iteration += 1
-            del batch, complet_inputs, total_loss, losses, features, features_teacher
+            del batch, complet_inputs, total_loss, losses, features
+            if config.MODEL.DISTILLATION:
+                del losses_teacher, features_teacher
             torch.cuda.empty_cache()
         # Learning rate scheduler step
         lr_scheduler.step()
-        lr_scheduler_teacher.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
