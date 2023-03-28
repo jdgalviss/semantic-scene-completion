@@ -406,7 +406,6 @@ def main():
                                     semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
                                     semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
                                     semantic_labels = semantic_labels[semantic_gt!=255]
-                                    seg_evaluators_teacher[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
                                     occupancy_prediction = results_teacher['occupancy_{}'.format(level)]
                                     occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
                                     occupancy_prediction = np.uint16(occupancy_prediction.to("cpu").detach().cpu().numpy()).flatten()
