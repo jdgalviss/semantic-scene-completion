@@ -11,16 +11,11 @@ sys.path.append("..")
 from structures import collect
 from utils import get_bev
 from .discriminator2D import Discriminator2D, GANLoss
-from .lovasz_loss import lovasz_softmax
+from .lovasz_loss import Lovasz_loss
+from .arch_2dpass import ResNetFCN, xModalKD
 device = torch.device("cuda:0")
 
-class Lovasz_loss(nn.Module):
-    def __init__(self, ignore=None):
-        super(Lovasz_loss, self).__init__()
-        self.ignore = ignore
 
-    def forward(self, probas, labels):
-        return lovasz_softmax(probas, labels, ignore=self.ignore)
     
 class SSCHead(nn.Module):
     def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1):
@@ -38,17 +33,14 @@ class SSCHead(nn.Module):
                                                         resnet_blocks)
         # self.semantic_head = self.semantic_head
 
-        # Discriminators
         # 2D
-        if config.MODEL.GEN_64_WEIGHT > 0.0:
-            self.discriminator = Discriminator2D(nf_in=1, nf=8, patch_size=96, image_dims=(64, 64), patch=False, use_bias=True, disc_loss_type='vanilla').to(device)
-            self.optimizer_disc = torch.optim.Adam(self.discriminator.parameters(), lr=1*0.0001, weight_decay=0.0)
-            self.gan_loss = GANLoss(loss_type='vanilla')
+        if config.MODEL.DISTILLATION:
+            self.model_2d = ResNetFCN(backbone="resnet34", pretrained=True)
+            self.fusion = xModalKD()
 
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
         self.criterion_semantics = F.cross_entropy  #nn.CrossEntropyLoss(reduction="none")
-
         if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
             self.lovasz_loss = Lovasz_loss(ignore=255)
 
@@ -57,6 +49,11 @@ class SSCHead(nn.Module):
 
     def forward(self, targets, seg_features, weights, features2D=None, is_train_mod=True):
         self._is_train_mod = is_train_mod
+        
+
+        
+
+        # 3D Completion
         # Put coordinates in the right order
         complet_coords = collect(targets, "complet_coords").squeeze()
         
@@ -104,10 +101,34 @@ class SSCHead(nn.Module):
 
         unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
+        features_completion = unet_output.features
 
+        print("features: ",len(features_completion))
+        for feature in features_completion:
+            print("\nfeature: ",feature.shape)
+            print("feature: ",feature.C.shape)
+
+        # Distillation 2D Features
+        if config.MODEL.DISTILLATION:
+            image = collect(targets, "image")
+            image_indices = collect(targets, "image_points").unsqueeze(0) # Unsqueeze works for batch size 1 
+            image_feats = self.model_2d(image, image_indices)
+
+            # Fusion
+            point_feats = None
+            coors_inv = None
+            labels = None
+            result_distillation = self.fusion(image_feats, features_completion, targets)
+
+
+
+        
+        #     print("encoded: ", torch.unique(feature.C[:,0]))
+        #     print("encoded: ", torch.unique(feature.C[:,1]))
+
+        
         losses = {}
         results = {}
-        
         # level-64
         if predictions[2] is None:
             return {}, {}
@@ -139,6 +160,7 @@ class SSCHead(nn.Module):
             losses.update(losses_output)
             results.update(results_output)
 
+        
 
         return losses, results
 

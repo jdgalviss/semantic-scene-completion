@@ -6,6 +6,7 @@ Maxim Berman 2018 ESAT-PSI KU Leuven (MIT License)
 from __future__ import print_function, division
 
 import torch
+import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
@@ -319,3 +320,12 @@ def mean(l, ignore_nan=False, empty=0):
     if n == 1:
         return acc
     return acc / n
+
+
+class Lovasz_loss(nn.Module):
+    def __init__(self, ignore=None):
+        super(Lovasz_loss, self).__init__()
+        self.ignore = ignore
+
+    def forward(self, probas, labels):
+        return lovasz_softmax(probas, labels, ignore=self.ignore)

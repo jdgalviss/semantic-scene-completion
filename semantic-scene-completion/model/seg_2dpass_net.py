@@ -99,6 +99,13 @@ class SparseSegNet2DPASS(nn.Module):
         out = result_dict['logits'][:,1:]
         if config.SEGMENTATION.SOFTMAX:
             out = F.softmax(out, dim=1)
+        print("result_dict", result_dict.keys())
+        print(type(result_dict['coors_inv']))
+        print(result_dict['coors_inv'].shape)
+        print(torch.unique(result_dict['coors_inv']))
+        print("labels: ", label.shape)
+
+
 
         return out, result_dict['features'], result_dict['loss']
     

@@ -17,6 +17,7 @@ from torch.nn import functional as F
 from scipy.spatial.transform import Rotation as R
 from utils.transforms import get_2d_input, get_bev
 from configs import config
+from PIL import Image
 
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
@@ -68,7 +69,6 @@ def get_labelweights():
     compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
     compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
     compl_labelweights = 1.0*compl_labelweights/np.linalg.norm(compl_labelweights)
-
     return torch.Tensor(seg_labelweights), torch.Tensor(compl_labelweights)
     
 class SemanticKITTIDataset(Dataset):
@@ -174,9 +174,51 @@ class SemanticKITTIDataset(Dataset):
             max_num_points_per_voxel=20,
             max_num_voxels=256 * 256 * 32
         )
+        self.bottom_crop = config.MODEL.BOTTOM_CROP
 
     def __len__(self):
         return self.num_files
+    
+    @staticmethod
+    def read_calib(calib_path):
+        """
+        :param calib_path: Path to a calibration text file.
+        :return: dict with calibration matrices.
+        """
+        calib_all = {}
+        with open(calib_path, 'r') as f:
+            for line in f.readlines():
+                if line == '\n':
+                    break
+                key, value = line.split(':', 1)
+                calib_all[key] = np.array([float(x) for x in value.split()])
+
+        # reshape matrices
+        calib_out = {}
+        calib_out['P2'] = calib_all['P2'].reshape(3, 4)  # 3x4 projection matrix for left camera
+        calib_out['Tr'] = np.identity(4)  # 4x4 matrix
+        calib_out['Tr'][:3, :4] = calib_all['Tr'].reshape(3, 4)
+
+        return calib_out
+    
+    @staticmethod
+    def select_points_in_frustum(points_2d, x1, y1, x2, y2):
+        """
+        Select points in a 2D frustum parametrized by x1, y1, x2, y2 in image coordinates
+        :param points_2d: point cloud projected into 2D
+        :param points_3d: point cloud
+        :param x1: left bound
+        :param y1: upper bound
+        :param x2: right bound
+        :param y2: lower bound
+        :return: points (2D and 3D) that are in the frustum
+        """
+        keep_ind = (points_2d[:, 0] > x1) * \
+                   (points_2d[:, 1] > y1) * \
+                   (points_2d[:, 0] < x2) * \
+                   (points_2d[:, 1] < y2)
+
+        return keep_ind
 
     def __getitem__(self, t):
         """ fill dictionary with available data for given index. """
@@ -194,7 +236,7 @@ class SemanticKITTIDataset(Dataset):
         completion_collection['flip_mode'] = flip_mode
         # flip_mode = 0
         # rot_zyx=[0,0,10]
-        # rot_zyx=[0,0,0]
+        rot_zyx=[0,0,0]
 
 
         # read raw data and unpack (if necessary)
@@ -223,6 +265,7 @@ class SemanticKITTIDataset(Dataset):
             # turn in actual voxel grid representation.
             completion_collection[typ] = scan_data
         
+        segmentation_collection = {}
         if self.split != 'test':
             '''Load Segmentation Data'''
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
@@ -243,6 +286,65 @@ class SemanticKITTIDataset(Dataset):
             # Add noise augmentation to input data
             if self.augment:
                 feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
+            
+            # Images for distillation
+            if config.MODEL.DISTILLATION:
+                calib_file = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].split('voxels')[0] + "calib.txt"
+                calib = self.read_calib(calib_file)
+                proj_matrix = np.matmul(calib['P2'], calib['Tr'])
+                image_file = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','image_2').replace('.bin','.png')
+                image = Image.open(image_file)
+
+                # create image label from pointcloud labels
+                keep_idx = xyz[:, 0] > 0  # only keep point in front of the vehicle
+                coords_labels = xyz[keep_idx]
+                labels_pc = label[keep_idx]
+                points_hcoords = np.concatenate([coords_labels, np.ones([coords_labels.shape[0],1])], dtype=np.float32, axis=1)
+                img_points = (proj_matrix @ points_hcoords.T).T
+                img_points = img_points[:, :2] / np.expand_dims(img_points[:, 2], axis=1)  # scale 2D points
+                keep_idx_img_pts = self.select_points_in_frustum(img_points, 0, 0, *image.size)
+
+                img_points = np.fliplr(img_points)
+                img_points = np.concatenate([img_points, np.expand_dims(np.arange(img_points.shape[0]), axis=1)],axis=1)
+                img_points = img_points[keep_idx_img_pts] # row,col,keep_idx
+
+                img_labels = labels_pc[keep_idx_img_pts] + 1
+                
+                # 2D augmentation
+                if self.bottom_crop:
+                    # self.bottom_crop is a tuple (crop_width, crop_height)
+                    left = int(np.random.rand() * (image.size[0] + 1 - self.bottom_crop[0]))
+                    right = left + self.bottom_crop[0]
+                    top = image.size[1] - self.bottom_crop[1]
+                    bottom = image.size[1]
+
+                    # update image points
+                    keep_idx = img_points[:, 0] >= top
+                    keep_idx = np.logical_and(keep_idx, img_points[:, 0] < bottom)
+                    keep_idx = np.logical_and(keep_idx, img_points[:, 1] >= left)
+                    keep_idx = np.logical_and(keep_idx, img_points[:, 1] < right)
+
+                    # crop image
+                    image = image.crop((left, top, right, bottom))
+                    img_points = img_points[keep_idx]
+                    img_points[:, 0] -= top
+                    img_points[:, 1] -= left
+
+                    img_labels = img_labels[keep_idx]
+
+                img_points = img_points.astype(np.int64)
+                
+
+
+                #PIL to numpy
+                image = np.array(image, dtype=np.float32, copy=False)/255.0
+                # normalize image
+                mean = np.asarray(config.MODEL.IMAGE_MEAN, dtype=np.float32)
+                std = np.asarray(config.MODEL.IMAGE_STD, dtype=np.float32)
+                image = (image - mean) / std
+
+                segmentation_collection.update({"image": torch.Tensor(image), "image_points": torch.Tensor(img_points).to(torch.int64), "image_labels": torch.Tensor(img_labels)})
+
         else:
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
             scan.open_scan(seg_point_name)
@@ -258,13 +360,17 @@ class SemanticKITTIDataset(Dataset):
             label = None
         
 
-        # Rotate augmentation input
         if self.augment:
             # Drop points randomly from pointcloud
             keep_idxs = np.random.uniform(size=xyz.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
             xyz = xyz[keep_idxs]
             label = label[keep_idxs]
             feature = feature[keep_idxs]
+        
+        
+
+        # 3D Augmentations
+        if self.augment:
             # rotate
             r = R.from_euler('zyx', rot_zyx, degrees=True)
             r = r.as_matrix()
@@ -274,11 +380,11 @@ class SemanticKITTIDataset(Dataset):
             mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
             translation[mask] = 0.0
             xyz+=translation
+            # Random flip
             if flip_mode == 1 or flip_mode == 2:
                 xyz[:,1] = -xyz[:,1]
 
-        '''Process Segmentation Data'''
-        segmentation_collection = {}
+        '''Process Segmentation Data for Completion'''
         coords, label, feature, idxs = self.process_seg_data(xyz, label, feature)
         # coords = coords[:, [3,0,1,2]]
         # Normalize segmentation features
@@ -299,8 +405,12 @@ class SemanticKITTIDataset(Dataset):
         aliment_collection = {}
         xyz = xyz[idxs]
         pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1)) # [x,y,z,idx,remission]
+
         
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
+        print("voxels: ", voxels.shape)
+        coords_inv = voxels[:,:,3].long()
+
 
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
         coords = coords[:, [2, 1, 0]]
@@ -325,6 +435,7 @@ class SemanticKITTIDataset(Dataset):
         completion_collection['label_128'][completion_collection['label_128']==-1] = 255
         completion_collection['label_64'][completion_collection['label_64']==-1] = 255
 
+
         aliment_collection.update({
             'voxels': voxels,
             'coords': coords,
@@ -337,6 +448,7 @@ class SemanticKITTIDataset(Dataset):
         # if self.split == "test":
         #     return aliment_collection
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
+    
 
     def process_seg_data(self, xyz, label, feature):
         coords = np.ascontiguousarray(xyz - xyz.mean(0))
@@ -449,6 +561,10 @@ def Merge(tbl):
     input2d = []
     bev_labels = []
     frustum_mask = []
+    
+    image = []
+    image_points = []
+    image_labels = []
 
 
     filenames = []
@@ -465,6 +581,10 @@ def Merge(tbl):
         seg_coords.append(torch.cat([torch.LongTensor(seg_coord.shape[0], 1).fill_(idx), seg_coord], 1))
         seg_labels.append(segmentation_collection['label'])
         seg_features.append(segmentation_collection['feature'])
+        if config.MODEL.DISTILLATION:
+            image.append(segmentation_collection['image'].unsqueeze(0))
+            image_points.append(segmentation_collection['image_points'])
+            image_labels.append(segmentation_collection['image_labels'].unsqueeze(1))
 
         '''Completion'''
         complet_coord = aliment_collection['coords']
@@ -560,8 +680,17 @@ def Merge(tbl):
     complet_valid = complet_labels != 255
 
 
-
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
+
+    if config.MODEL.DISTILLATION:
+        image = torch.cat(image, 0)
+        image_points = torch.cat(image_points, 0)
+        image_labels = torch.cat(image_labels, 0)
+        complet_inputs.add_field("image", image)
+        complet_inputs.add_field("image_points", image_points)
+        complet_inputs.add_field("image_labels", image_labels)
+
+
     complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
     complet_inputs.add_field("complet_valid", complet_valid)
     complet_inputs.add_field("complet_labels_256", complet_labels)
