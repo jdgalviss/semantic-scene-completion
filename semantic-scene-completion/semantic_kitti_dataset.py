@@ -306,7 +306,9 @@ class SemanticKITTIDataset(Dataset):
                 xyz_multi = xyz.copy()
                 remissions_multi = remissions.copy()
                 label_multi = label.copy()
+                id_multi = np.zeros_like(label)
                 T0 = self.all_poses[split][idx]
+                count = 1
                 for i in extra_idxs:
                     aux_point_name = seg_point_name.replace("{:06d}.bin".format(idx), "{:06d}.bin".format(i))
                     aux_label_name = seg_label_name.replace("{:06d}.".format(idx), "{:06d}.".format(i))
@@ -325,6 +327,8 @@ class SemanticKITTIDataset(Dataset):
                     xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
                     remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
                     label_multi = np.concatenate((label_multi, label_aux), axis=0)
+                    id_multi = np.concatenate((id_multi, count*np.ones_like(label_aux)), axis=0)
+                    count += 1
 
                 if config.MODEL.USE_COORDS:
                     feature_multi = np.concatenate([xyz_multi, remissions_multi.reshape(-1, 1)], 1)
@@ -376,6 +380,7 @@ class SemanticKITTIDataset(Dataset):
                 xyz_multi = xyz_multi[keep_idxs]
                 label_multi = label_multi[keep_idxs]
                 feature_multi = feature_multi[keep_idxs]
+                id_multi = id_multi[keep_idxs]
                 # rotate
                 xyz_multi = np.matmul(xyz_multi,r)
                 # Add translations
@@ -403,7 +408,9 @@ class SemanticKITTIDataset(Dataset):
         })
 
         if config.MODEL.DISTILLATION:
-            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
+            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi)#, m, random1, random2)
+            # print("coords_multi:", coords_multi.shape)
+            # print("coords_multi:", torch.unique(coords_multi))
             segmentation_collection.update({
                 'coords_multi': coords_multi,
                 'feature_multi': feature_multi,
@@ -474,7 +481,7 @@ class SemanticKITTIDataset(Dataset):
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
     def process_seg_data(self, xyz, label, feature, m=None, random1=None, random2=None):
-        coords = np.ascontiguousarray(xyz - xyz.mean(0))
+        coords = np.ascontiguousarray(xyz - xyz.mean(0)) # TODO: check if this should be kept for multisample pc
         if m is None:
             m = np.eye(3) + np.random.randn(3, 3) * 0.1
             m[0][0] *= np.random.randint(0, 2) * 2 - 1

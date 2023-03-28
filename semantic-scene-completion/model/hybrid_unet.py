@@ -318,9 +318,9 @@ class UNetBlockOuterSparse(UNetBlock):
         processed: BlockContent = self.submodule(BlockContent(encoded, x.encoding, x.features2D), batch_size)
 
         # Features
-        features = [encoded]
-        features.extend(processed.features)
-
+        # features = [encoded]
+        # features.extend(processed.features)
+        features = processed.features
         
         if processed is None:
             return None
@@ -411,7 +411,8 @@ class UNetBlockInner(UNetBlock):
         # coords = torch.nonzero(encoded_nz)
         # encoded_values = encoded[coords[:, 0], :, coords[:, 1], coords[:, 2], coords[:, 3]]
         # sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
-        features = None
+        features = [encoded]
+
         
 
         decoded = self.decoder(encoded) if not self.verbose else self.forward_verbose(encoded, self.decoder)

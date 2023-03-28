@@ -197,11 +197,11 @@ def main():
                 if config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
 
-            if config.MODEL.DISTILLATION:
-                distillation_loss = distillation_criteria(features, features_teacher)
-                # losses["distillation"] = distillation_loss
-                total_loss += distillation_loss
-                # losses["distillation"]: torch.Tensor = 0.0
+            # if config.MODEL.DISTILLATION:
+            #     distillation_loss = distillation_criteria(features, features_teacher)
+            #     # losses["distillation"] = distillation_loss
+            #     total_loss += distillation_loss
+            #     # losses["distillation"]: torch.Tensor = 0.0
 
             # backward pass and learning step
             if torch.is_tensor(total_loss):
@@ -220,8 +220,8 @@ def main():
                         train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
                 if config.MODEL.SEG_HEAD:
                     train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)  
-                if config.MODEL.DISTILLATION:
-                    train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
+                # if config.MODEL.DISTILLATION:
+                #     train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
                 
 
                 log_msg["total_loss"] = total_loss.item()
@@ -229,11 +229,14 @@ def main():
             
             train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
             iteration += 1
-            del batch, complet_inputs, total_loss, losses, features, features_teacher
+            del batch, complet_inputs, total_loss, losses, features
+            if config.MODEL.DISTILLATION:
+                del features_teacher
             torch.cuda.empty_cache()
         # Learning rate scheduler step
         lr_scheduler.step()
-        lr_scheduler_teacher.step()
+        if config.MODEL.DISTILLATION:
+            lr_scheduler_teacher.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
@@ -250,6 +253,8 @@ def main():
         # Evaluation
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL != "256":
             model.eval()
+            if config.MODEL.DISTILLATION:
+                model_teacher.eval()
             log_images = {}
             with torch.no_grad():
                 for dataloader_name, dataloader in val_dataloaders.items():
@@ -257,6 +262,11 @@ def main():
                                       "128": iouEval(config.SEGMENTATION.NUM_CLASSES, []),  
                                       "256": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
                                       "seg": iouEval(config.SEGMENTATION.NUM_CLASSES, [])}
+                    if config.MODEL.DISTILLATION:
+                        seg_evaluators_teacher = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
+                                                  "128": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
+                                                  "256": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
+                                                  "seg": iouEval(config.SEGMENTATION.NUM_CLASSES, [])}
 
                     
                     log_images[dataloader_name] = []
@@ -273,6 +283,8 @@ def main():
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
                         results = model.inference(complet_inputs)
+                        if config.MODEL.DISTILLATION:
+                            results_teacher = model_teacher.inference(complet_inputs)
                     
                         # log images of BEVs to tensorboard
                         if i in eval_imgs_idxs:
@@ -288,6 +300,15 @@ def main():
                             bev_labels = collect(complet_inputs, "bev_labels")
                             bev_gt = labels_to_cmap2d(bev_labels)
                             log_images[dataloader_name].append((bev_gt[0]))
+                            if config.MODEL.DISTILLATION:
+                                # input pc
+                                input_coords = collect(complet_inputs,"complet_coords_multi").squeeze() # TODO: only works for batch size 1
+                                input_remission = collect(complet_inputs,"complet_features_multi")
+                                voxels = torch.zeros((1,256,256,32)).int().cuda()
+                                voxels[input_coords[:,0].long(),input_coords[:,1].long(),input_coords[:,2].long(),input_coords[:,3].long()]=((input_remission[0]*126.0).int()+1)
+                                input_bev = get_bev(voxels)
+                                input_bev = input_to_cmap2d(input_bev)
+                                log_images[dataloader_name].append((input_bev[0]))
                         
                         # iou for pointcloud segmentation
                         if config.MODEL.SEG_HEAD:
@@ -298,6 +319,15 @@ def main():
                             pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
                             pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
                             seg_evaluators["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
+
+                            if config.MODEL.DISTILLATION:
+                                pc_seg_pred = results_teacher['pc_seg']
+                                pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
+                                pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()
+                                pc_seg_gt = collect(complet_inputs, "seg_labels_multi").cpu().detach().numpy()
+                                pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
+                                pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
+                                seg_evaluators_teacher["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
 
                         for level in levels:
                             if level=="seg": # this doesn't apply for pointcloud segmentation
@@ -321,6 +351,23 @@ def main():
                                 seg_labels_gt = semantic_gt[semantic_gt!=255]
                                 semantic_labels = semantic_labels[semantic_gt!=255]
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
+                                if config.MODEL.DISTILLATION:
+                                    semantic_gt = collect(complet_inputs,"complet_labels_{}".format(level)) #.long()
+                                    occupancy_gt = collect(complet_inputs,"complet_occupancy_{}".format(level)) #.long()
+                                    occupancy_prediction = results_teacher['occupancy_{}'.format(level)].squeeze() > 0.5
+                                    occupancy_prediction = occupancy_prediction.to('cpu').data.numpy().flatten()
+                                    semantic_labels = results_teacher['semantic_labels_{}'.format(level)]
+                                    if i in eval_imgs_idxs and level == config.GENERAL.LEVEL:
+                                        semantic_labels_rgb = get_bev(semantic_labels)
+                                        semantic_labels_rgb = F.interpolate(semantic_labels_rgb.unsqueeze(0).float(), size=(256,256), mode="nearest")
+                                        semantic_labels_rgb = labels_to_cmap2d(semantic_labels_rgb[0].long())
+                                        log_images[dataloader_name].append((semantic_labels_rgb[0]))
+                                    semantic_gt = semantic_gt.to('cpu').data.numpy().flatten()
+                                    semantic_labels = semantic_labels.to('cpu').data.numpy().flatten()
+                                    seg_labels_gt = semantic_gt[semantic_gt!=255]
+                                    semantic_labels = semantic_labels[semantic_gt!=255]
+                                    seg_evaluators_teacher[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
+
                             else:
                                 min_coordinate = torch.IntTensor([0, 0, 0])
                                 shape = shapes[level]
@@ -337,8 +384,6 @@ def main():
                                 semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
                                 semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
                                 semantic_labels = semantic_labels[semantic_gt!=255]
-                                
-                                
                                 occupancy_prediction = results['occupancy_{}'.format(level)]
                                 occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
                                 occupancy_prediction = np.uint16(occupancy_prediction.to("cpu").detach().cpu().numpy()).flatten()
@@ -347,11 +392,35 @@ def main():
                                 occupancy_prediction = occupancy_prediction[semantic_gt!=255]
                                 semantic_gt = semantic_gt[semantic_gt!=255]
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
+                                if config.MODEL.DISTILLATION:
+                                    semantic_gt = collect(complet_inputs,"complet_labels_{}".format(level)) #.long()
+                                    occupancy_gt = collect(complet_inputs,"complet_occupancy_{}".format(level)) #.long()
+                                    semantic_labels = results_teacher['semantic_labels_{}'.format(level)]
+                                    semantic_labels, _, _ = semantic_labels.dense(shape, min_coordinate=min_coordinate)
+                                    semantic_labels[:,semantic_gt == 255] = 0
+                                    if i in eval_imgs_idxs and (level == config.GENERAL.LEVEL or level == "256"):
+                                        semantic_labels_rgb = get_bev(semantic_labels[0])
+                                        semantic_labels_rgb = F.interpolate(semantic_labels_rgb.unsqueeze(0).float(), size=(256,256), mode="nearest")
+                                        semantic_labels_rgb = labels_to_cmap2d(semantic_labels_rgb[0].long())
+                                        log_images[dataloader_name].append((semantic_labels_rgb[0]))
+                                    semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
+                                    semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
+                                    semantic_labels = semantic_labels[semantic_gt!=255]
+                                    seg_evaluators_teacher[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
+                                    occupancy_prediction = results_teacher['occupancy_{}'.format(level)]
+                                    occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
+                                    occupancy_prediction = np.uint16(occupancy_prediction.to("cpu").detach().cpu().numpy()).flatten()
+                                    occupancy_gt = np.uint16(occupancy_gt.detach().cpu().numpy()).flatten()
+                                    occupancy_gt = occupancy_gt[semantic_gt!=255]
+                                    occupancy_prediction = occupancy_prediction[semantic_gt!=255]
+                                    semantic_gt = semantic_gt[semantic_gt!=255]
+                                    seg_evaluators_teacher[level].addBatch(semantic_labels.astype(int), semantic_gt.astype(int))
                         del batch, complet_inputs, results, semantic_gt, occupancy_gt, semantic_labels, occupancy_prediction
+                        if config.MODEL.DISTILLATION:
+                            del results_teacher
                         torch.cuda.empty_cache()
                 
                     # log eval results
-
                     for level in levels:
                         print("Evaluating level: {}".format(level))
                         _, class_jaccard = seg_evaluators[level].getIoU()
@@ -379,11 +448,31 @@ def main():
                         writers[dataloader_name].add_scalar('eval-{}/recall'.format(level), recall*100, epoch)
                         writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn'.format(level), acc_cmpltn*100, epoch)
 
+                        if config.MODEL.DISTILLATION:
+                            _, class_jaccard = seg_evaluators_teacher[level].getIoU()
+                            m_jaccard = class_jaccard[1:].mean()
+                            ignore = [0]
+                            for i, jacc in enumerate(class_jaccard):
+                                if i not in ignore:
+                                    writers[dataloader_name].add_scalar('eval-{}/{}_teacher'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
+                                    # print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
+                                    #     i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
+                            conf = seg_evaluators_teacher[level].get_confusion()
+                            precision = np.sum(conf[1:,1:]) / (np.sum(conf[1:,:]) + epsilon)
+                            recall = np.sum(conf[1:,1:]) / (np.sum(conf[:,1:]) + epsilon)
+                            acc_cmpltn = (np.sum(conf[1:, 1:])) / (np.sum(conf) - conf[0,0])
+                            writers[dataloader_name].add_scalar('eval-{}/mIoU_teacher'.format(level), m_jaccard*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/precision_teacher'.format(level), precision*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/recall_teacher'.format(level), recall*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn_teacher'.format(level), acc_cmpltn*100, epoch)
+
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 4 if config.MODEL.UNET2D else 3
+                    num_rows = 4 if config.MODEL.UNET2D else 5
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
+            
+            
 
 if __name__ == '__main__':
     # Arguments
