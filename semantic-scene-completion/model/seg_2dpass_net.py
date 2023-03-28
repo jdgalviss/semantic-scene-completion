@@ -93,7 +93,7 @@ class SparseSegNet2DPASS(nn.Module):
         data_dict = {}
         data_dict['points'] = feat #xyz + feat
         data_dict['batch_idx'] = coords[:,0]
-        data_dict['batch_size'] = 1 # TODO: enable batch size > 1
+        data_dict['batch_size'] = torch.max(coords[:,0]) + 1 # TODO: enable batch size > 1
         data_dict['labels'] = label
         result_dict = self.model(data_dict)
         out = result_dict['logits'][:,1:]
@@ -106,12 +106,13 @@ class SparseSegNet2DPASS(nn.Module):
         data_dict = {}
         data_dict['points'] = feat
         data_dict['batch_idx'] = coords[:,0]
-        data_dict['batch_size'] = 1 # TODO: enable batch size > 1
+        data_dict['batch_size'] = torch.max(coords[:,0]) + 1 # TODO: enable batch size > 1
         data_dict['labels'] = None
         result_dict = self.model(data_dict)
         out = result_dict['logits'][:,1:]
         if config.SEGMENTATION.SOFTMAX:
             out = F.softmax(out, dim=1)
         return out, result_dict['features']
+
 
 

@@ -409,9 +409,8 @@ class SemanticKITTIDataset(Dataset):
 
         if config.MODEL.DISTILLATION:
             coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi)#, m, random1, random2)
-            # print("coords_multi:", coords_multi.shape)
-            # print("coords_multi:", torch.unique(coords_multi))
             segmentation_collection.update({
+                'id_multi': id_multi,
                 'coords_multi': coords_multi,
                 'feature_multi': feature_multi,
                 'label_multi': label_multi,
@@ -647,7 +646,8 @@ def Merge(tbl):
 
         if config.MODEL.DISTILLATION:
             seg_coord_multi = segmentation_collection['coords_multi']
-            seg_coords_multi.append(torch.cat([torch.LongTensor(seg_coord_multi.shape[0], 1).fill_(idx), seg_coord_multi], 1))
+            seg_coords_multi.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord_multi], 1))
+            # seg_coords_multi.append(torch.cat([torch.LongTensor(seg_coord_multi.shape[0], 1).fill_(idx), seg_coord_multi], 1))
             seg_features_multi.append(segmentation_collection['feature_multi'])
             seg_labels_multi.append(segmentation_collection['label_multi'])
 
