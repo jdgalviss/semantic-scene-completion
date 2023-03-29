@@ -27,8 +27,8 @@ SPLIT_SEQUENCES = {
     "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
     "trainval": ["00"],
-
 }
+
 
 SPLIT_FILES = {
     "train": [".bin", ".label", ".label_128", ".label_64", ".invalid", ".invalid_64", ".invalid_128", ".occluded"],
@@ -90,8 +90,8 @@ class SemanticKITTIDataset(Dataset):
                                14: 'fence', 15: 'vegetation', 16: 'trunk', 17: 'terrain', 18: 'pole',
                                19: 'traffic-sign', 20: 'other-object', 21: 'other-object'}
         # Iterate over all sequences present in split
-        self.samples_per_split = []
-        self.all_poses = []
+        self.samples_per_split = {}
+        self.all_poses = {}
 
         for sequence in SPLIT_SEQUENCES[split]:
             # Form path to voxels in split
@@ -138,8 +138,8 @@ class SemanticKITTIDataset(Dataset):
                     pose = np.concatenate([np.array(pose),np.array([0.,0,0.,1.]).reshape(1,4)],axis=0)
                     pose = np.matmul(Tr_inv,np.matmul(pose,Tr))
                     poses_split.append(pose)
-            self.samples_per_split.append(len(poses_split))
-            self.all_poses.append(np.array(poses_split))
+            self.samples_per_split.update({sequence: len(poses_split)})
+            self.all_poses.update({sequence: np.array(poses_split)})
         
         if(do_overfit):
             filenames_list = []
@@ -302,10 +302,10 @@ class SemanticKITTIDataset(Dataset):
             
             if config.MODEL.DISTILLATION:
                 split, idx = self.filenames[t]
-                split = int(split)
+                # split = int(split)
                 idx = int(idx)
 
-                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<self.samples_per_split[split]]
+                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<(self.samples_per_split[split]-1)]
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
 

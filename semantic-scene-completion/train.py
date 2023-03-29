@@ -21,7 +21,7 @@ torch.autograd.set_detect_anomaly(True)
 epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
 eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600]
-eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
+# eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
     
 
 def main():
@@ -99,7 +99,7 @@ def main():
     seg_labelweights, compl_labelweights = get_labelweights()
     seg_labelweights = seg_labelweights.to(device)
     compl_labelweights = compl_labelweights.to(device)
-
+    consecutive_fails = 0
     # ===== Training loop =====
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         update_level(config, epoch) # Updates config.GENERAL.LEVEL
@@ -116,7 +116,17 @@ def main():
             if config.MODEL.DISTILLATION:
                 model_teacher.train()
                 teacher_optimizer.zero_grad()
-                _, losses_teacher, features_teacher, sigma_teacher = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
+                try:
+                    _, losses_teacher, features_teacher, sigma_teacher = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
+                except Exception as e:
+                    print(e, "Error in forward pass teacher: ", iteration)
+                    consecutive_fails += 1
+                    if consecutive_fails > 100:
+                        print("Too many consecutive fails, exiting")
+                        return
+                    del complet_inputs
+                    torch.cuda.empty_cache()
+                    continue
                 total_loss: torch.Tensor = 0.0
                 factor_compl_teacher = 1.0 / (sigma_teacher[1]**2)
                 total_loss += factor_compl_teacher[0] * losses_teacher["occupancy_64"] + 2 * torch.log(sigma_teacher[1][0]) + \
@@ -157,7 +167,18 @@ def main():
             # Get tensors from batch
 
             # forward pass
-            _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            try:
+                _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            except Exception as e:
+                print(e, "Error in forward pass: ", iteration)
+                consecutive_fails += 1
+                if consecutive_fails > 100:
+                    print("Too many consecutive fails, exiting")
+                    return
+                del complet_inputs
+                torch.cuda.empty_cache()
+                continue
+            consecutive_fails = 0
             
 
 
@@ -280,9 +301,17 @@ def main():
                         levels.append("seg")
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
-                        results = model.inference(complet_inputs)
+                        try:
+                            results = model.inference(complet_inputs)
+                        except Exception as e:
+                            print(e, "Error in forward pass - evaluation: ", iteration)
+                            continue
                         if config.MODEL.DISTILLATION:
-                            results_teacher = model_teacher.inference(complet_inputs)
+                            try:
+                                results_teacher = model_teacher.inference(complet_inputs)
+                            except Exception as e:
+                                print(e, "Error in teacher forward pass - evaluation: ", iteration)
+                                continue
                     
                         # log images of BEVs to tensorboard
                         if i in eval_imgs_idxs:
@@ -465,7 +494,9 @@ def main():
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 4 if config.MODEL.UNET2D else 5
+                    num_rows = 4 if config.MODEL.UNET2D else 3
+                    if config.MODEL.DISTILLATION:
+                        num_rows += 2
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
             
