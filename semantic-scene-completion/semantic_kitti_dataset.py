@@ -399,11 +399,11 @@ class SemanticKITTIDataset(Dataset):
                 if flip_mode == 1 or flip_mode == 2:
                     xyz_multi[:,1] = -xyz_multi[:,1]
             
-            # Update feature
-            if config.MODEL.USE_COORDS:
-                feature[:,:-1] = xyz
-                if config.MODEL.DISTILLATION:
-                    feature_multi[:,:-1] = xyz_multi
+            # # Update feature
+            # if config.MODEL.USE_COORDS:
+            #     feature[:,:-1] = xyz
+            #     if config.MODEL.DISTILLATION:
+            #         feature_multi[:,:-1] = xyz_multi
 
         '''Process Segmentation Data'''
         segmentation_collection = {}
@@ -731,7 +731,14 @@ def Merge(tbl):
 
 
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
-    complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
+    if not config.MODEL.MULTI_ONLY:
+        complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
+        complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0))
+        complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
+        complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
+        complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+        complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
+        complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
     complet_inputs.add_field("complet_valid", complet_valid)
     complet_inputs.add_field("complet_labels_256", complet_labels)
     complet_inputs.add_field("complet_occupancy_256", complet_occupancy)
@@ -739,14 +746,9 @@ def Merge(tbl):
     complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
     complet_inputs.add_field("complet_labels_64", complet_labels_64)
     complet_inputs.add_field("complet_occupancy_64", complet_occupancy_64)
-    complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
-    complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0))
-    complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
-    complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+    
     complet_inputs.add_field("input2d", input2d)
     complet_inputs.add_field("bev_labels", bev_labels)
-    complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
-    complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
     complet_inputs.add_field("frustum_mask", frustum_mask)
     
     if config.MODEL.DISTILLATION:
