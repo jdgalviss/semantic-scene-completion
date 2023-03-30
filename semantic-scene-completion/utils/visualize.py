@@ -36,7 +36,18 @@ def rgb_to_hex(rgb):
     rgb = totuple(rgb)
     return '0x%02x%02x%02x' % rgb
 
-def lidar_intensities_cmap():
+def hex_classes_cmap():
+    classes_cmap = []
+    for rgb in (np.uint8(classes_colors)):
+        hex_str = rgb_to_hex(rgb)
+        hex_int = int(hex_str, 16)
+        new_int = hex_int + 0x200
+        classes_cmap.append(new_int)
+
+    classes_cmap = np.array(classes_cmap)
+    return classes_cmap
+
+def hex_lidar_intensities_cmap():
     viridis = cm.get_cmap('plasma', 128)
     cmap = []
     for rgb in (np.uint8((viridis.colors)[:,:-1]*255.0)):
@@ -44,6 +55,7 @@ def lidar_intensities_cmap():
         hex_int = int(hex_str, 16)
         new_int = hex_int + 0x200
         cmap.append(new_int)
+    cmap = np.array(cmap)
     return cmap
 
 def classes_cmap():

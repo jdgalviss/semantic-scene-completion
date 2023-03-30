@@ -25,7 +25,8 @@ remapdict = kitti_config["learning_map"]
 SPLIT_SEQUENCES = {
     "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
     "valid": ["08"],
-    "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
+    "test": ["08"],
+    # "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
     "trainval": ["00"],
 }
 
@@ -230,11 +231,12 @@ class SemanticKITTIDataset(Dataset):
                              (xyz[:, 2] >= config.COMPLETION.POINT_CLOUD_RANGE[2]) & (xyz[:, 2] <= config.COMPLETION.POINT_CLOUD_RANGE[5]))[0]
         return xyz[keep_idxs],labels[keep_idxs],remissions[keep_idxs]
 
-    
-
     def __getitem__(self, t):
         """ fill dictionary with available data for given index. """
         '''Load Completion Data'''
+        # t=3502 460 31 1051
+        t = 1051
+        print(t)
         completion_collection = {}
         if self.augment:
             # stat = np.random.randint(0,6)
@@ -289,7 +291,7 @@ class SemanticKITTIDataset(Dataset):
             label = scan.sem_label
             label = self.seg_remap_lut[label]
 
-            # xyz, remissions, label = self.points_in_range(xyz,remissions,label)
+            xyz, remissions, label = self.points_in_range(xyz,remissions,label)
 
             if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
@@ -324,6 +326,7 @@ class SemanticKITTIDataset(Dataset):
                     xyz_aux = scan.points
                     label_aux = scan.sem_label
                     label_aux = self.seg_remap_lut[label_aux]
+                    xyz_aux, remissions_aux, label_aux = self.points_in_range(xyz_aux,remissions_aux,label_aux)
                     xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
                     # Transform to the same coordinate system as the first frame using homogeneous transformations
                     Ti = self.all_poses[split][i]
@@ -355,12 +358,45 @@ class SemanticKITTIDataset(Dataset):
             
             xyz = scan.points
             remissions = scan.remissions
-            print("si")
 
-            if config.MODEL.USE_COORDS:
-                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+            if not config.MODEL.MULTI_ONLY:
+                if config.MODEL.USE_COORDS:
+                    feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+                else:
+                    feature = remissions.reshape(-1, 1)
             else:
-                feature = remissions.reshape(-1, 1)
+                split, idx = self.filenames[t]
+                idx = int(idx)
+                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<(self.samples_per_split[split]-1)]
+                id_multi = np.zeros_like(remissions, dtype=np.uint8)
+                xyz_multi_raw = xyz.copy()
+                T0 = self.all_poses[split][idx]
+                count = 1
+                for i in extra_idxs:
+                    aux_point_name = seg_point_name.replace("{:06d}.bin".format(idx), "{:06d}.bin".format(i))
+                    scan.open_scan(aux_point_name)
+
+                    remissions_aux = scan.remissions
+                    xyz_aux = scan.points
+                    xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
+                    # Transform to the same coordinate system as the first frame using homogeneous transformations
+                    Ti = self.all_poses[split][i]
+                    # T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
+                    T = np.matmul(np.linalg.inv(T0),Ti)
+                    xyz_aux_h = np.concatenate([xyz_aux, np.ones((xyz_aux.shape[0], 1))], axis=1)
+                    xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
+                    xyz = np.concatenate((xyz, xyz_aux), axis=0)
+
+                    remissions = np.concatenate((remissions, remissions_aux), axis=0)
+                    id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_aux,dtype=np.uint8)), axis=0)
+                    count += 1
+                if config.MODEL.USE_COORDS:
+                    feature = np.concatenate([xyz_multi_raw, remissions.reshape(-1, 1)], 1)
+                else:
+                    feature = remissions.reshape(-1, 1)
+                # Add noise augmentation to input data
+                if self.augment:
+                    feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
             label = None
 
         # Rotate augmentation input
@@ -424,11 +460,17 @@ class SemanticKITTIDataset(Dataset):
         if config.MODEL.DISTILLATION:
             coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
             segmentation_collection.update({
-                'id_multi': id_multi[idxs_multi],
                 'coords_multi': coords_multi,
                 'feature_multi': feature_multi,
                 'label_multi': label_multi,
             })
+
+        
+        if config.MODEL.DISTILLATION:
+            segmentation_collection.update({'id_multi': id_multi[idxs_multi]})
+
+        elif config.MODEL.MULTI_ONLY:
+            segmentation_collection.update({'id_multi': id_multi[idxs]})
 
         '''Generate Alignment Data'''
         aliment_collection = {}
@@ -454,12 +496,14 @@ class SemanticKITTIDataset(Dataset):
         intensity_voxels = torch.zeros((1,256,256,32))
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
         input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
-        bev_labels = get_bev(completion_collection['label'])
 
-        completion_collection.update({'frustum_mask': completion_collection['label'] != -1})
-        completion_collection['label'][completion_collection['label']==-1] = 255
-        completion_collection['label_128'][completion_collection['label_128']==-1] = 255
-        completion_collection['label_64'][completion_collection['label_64']==-1] = 255
+        if self.split != 'test':
+            bev_labels = get_bev(completion_collection['label'])
+            aliment_collection.update({'bev_labels': bev_labels})
+            completion_collection.update({'frustum_mask': completion_collection['label'] != -1})
+            completion_collection['label'][completion_collection['label']==-1] = 255
+            completion_collection['label_128'][completion_collection['label_128']==-1] = 255
+            completion_collection['label_64'][completion_collection['label_64']==-1] = 255
 
         aliment_collection.update({
             'voxels': voxels,
@@ -468,8 +512,10 @@ class SemanticKITTIDataset(Dataset):
             'num_points_per_voxel': num_points_per_voxel,
             'features': features,
             'input2d': input2d,
-            'bev_labels': bev_labels,
         })
+
+        
+
         if config.MODEL.DISTILLATION:
             xyz_multi = xyz_multi[idxs_multi]
             pc_multi = torch.from_numpy(np.concatenate([xyz_multi, np.arange(len(xyz_multi)).reshape(-1,1), feature_multi],-1)) # [x,y,z,idx,remission]
@@ -783,17 +829,32 @@ def MergeTest(tbl):
     voxel_centers = []
     complet_invoxel_features = []
     complet_features = []
+    seg_coords = []
+    seg_features = []
+    seg_labels = []
     filenames = []
     offset = 0
     input_vx = []
+
     for idx, example in enumerate(tbl):
-        filename, completion_collection, aliment_collection, _ = example
+        filename, completion_collection, aliment_collection, segmentation_collection = example
         '''File Name'''
         filenames.append(filename)
+
+        '''Segmentation'''
+        seg_coord = segmentation_collection['coords']
+        if config.MODEL.MULTI_ONLY:
+            seg_coords.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord], 1))
+        else:
+            seg_coords.append(torch.cat([torch.LongTensor(seg_coord.shape[0], 1).fill_(idx), seg_coord], 1))
+        seg_labels.append(segmentation_collection['label'])
+        seg_features.append(segmentation_collection['feature'])
 
 
         '''Completion'''
         complet_coord = aliment_collection['coords']
+        
+            
         complet_coords.append(torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1))
 
         input_vx.append(completion_collection['input'])
@@ -801,15 +862,20 @@ def MergeTest(tbl):
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
         complet_invoxel_feature = aliment_collection['voxels']
         complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
-
-        complet_features.append(aliment_collection['features'])
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
-    complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
-    complet_features = torch.cat(complet_features, 0)
-    complet_coords = torch.cat(complet_coords, 0)
+        offset += seg_coord.shape[0]
+        complet_features.append(aliment_collection['features'])
 
+        
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
-    complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
-    complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+    complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
+    complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
+
+    complet_inputs.add_field("complet_coords", torch.cat(complet_coords, 0).unsqueeze(0))
+    complet_inputs.add_field("complet_features", torch.cat(complet_features, 0).unsqueeze(0))
+    complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
+    complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0))
+
+
     # filenames = None
     return filenames, complet_inputs, None, filenames
