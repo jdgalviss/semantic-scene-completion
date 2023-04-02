@@ -65,11 +65,12 @@ classes_colors2 = np.uint8(classes_colors)
 color_0 = np.array([[0,0,0]])
 classes_colors2 = np.concatenate((color_0,classes_colors))
 
-
 # Create images
 plt.ioff()
 
 for i, path in enumerate(tqdm(paths)):
+    if i % 2 == 0:
+        continue
     
     prediction = np.fromfile(path, dtype=np.uint16) 
     prediction = np.int32(prediction.reshape(config.COMPLETION.FULL_SCALE))
@@ -111,7 +112,8 @@ for i, path in enumerate(tqdm(paths)):
     
     plt.grid(False)
     plt.axis('off')
-    plt.savefig('output/imgs/screenshot_%03d.png'%i, bbox_inches='tight')
+    plt.savefig('output/imgs/screenshot_%05d.png'%(i), bbox_inches='tight')
+    plt.close()
 
 
 # Create video
@@ -128,9 +130,9 @@ height, width, layers = frame.shape
 # print(frame.shape)
 width = 586
 height = 620
-video_name = 'output/gifs/video194.mp4'
+video_name = 'output/gifs/video08.mp4'
 fourcc = cv2.VideoWriter_fourcc(*'MP4V')
-video = cv2.VideoWriter(video_name, fourcc, 5.0, (width,height))
+video = cv2.VideoWriter(video_name, fourcc=cv2.VideoWriter_fourcc(*"mp4v"), fps=10.0, frameSize=(width,height), isColor=True)
 
 for i, image_name in enumerate(paths):
 #     if i>10:
@@ -138,6 +140,8 @@ for i, image_name in enumerate(paths):
     img = cv2.imread(image_name)
     img = cv2.resize(img, (width,height), interpolation = cv2.INTER_AREA)
     video.write(img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
 cv2.destroyAllWindows()
 video.release()

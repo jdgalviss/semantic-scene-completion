@@ -5,15 +5,12 @@ from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 import numpy as np
 import time
 from tqdm import tqdm
-from model import SSCHead
+from model import MyModel
 import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
-from utils.path_utils import create_new_experiment_folder, save_config
 from utils import re_seed
 from structures import collect
-from evaluation import iouEval
-from model import get_sparse_values
 import os
 import yaml
 
@@ -23,11 +20,11 @@ shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128,
 
 def main():
     re_seed(0)
-    test_dataset = SemanticKITTIDataset(config, "valid",do_overfit=False, augment=False)
+    test_dataset = SemanticKITTIDataset("test",do_overfit=False, augment=False)
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=1,
-        collate_fn=Merge,
+        collate_fn=MergeTest,
         num_workers=config.TRAIN.NUM_WORKERS,
         pin_memory=True,
         shuffle=False,
@@ -35,10 +32,11 @@ def main():
         worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
 
-    model = SSCHead(num_output_channels=config.MODEL.NUM_OUTPUT_CHANNELS, unet_features=config.MODEL.NUM_INPUT_FEATURES)
+    model = MyModel().to(device)
 
-    ckpt_path = "experiments/194/modelFULL-57.pth" #config.GENERAL.CHECKPOINT_PATH
 
+    # ckpt_path = "/usr/src/app/semantic-scene-completion/data/teacherFULL-24.pth" #config.GENERAL.CHECKPOINT_PATH
+    ckpt_path = "/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth"
     try:
         model.load_state_dict(torch.load(ckpt_path))
         training_epoch = int(ckpt_path.split('-')[-1].split('.')[0]) + 1
@@ -49,7 +47,6 @@ def main():
         print("Checkpoint {} not found".format(ckpt_path))
         return
 
-    model = model.to(device)
     model.eval()
 
     seg_label_to_cat = test_dataset.label_to_names
@@ -88,7 +85,7 @@ def main():
             
 
             shape = shapes[level]
-            min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
+            min_coordinate = torch.IntTensor([0, 0, 0])
 
             if level == "64":
                 occupancy_prediction = occupancy_prediction[0,0].detach().cpu().numpy() > 0.5
@@ -101,11 +98,10 @@ def main():
                 semantic_prediction, _, _ = semantic_prediction.dense(shape, min_coordinate=min_coordinate)
                 semantic_prediction = np.uint16(semantic_prediction.to("cpu")[0,0].detach().cpu().numpy())
 
-            # Override prediction 
             # print("semantic_prediction.shape: ", semantic_prediction.shape)
-            gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
-            gt_labels = np.uint16(gt_labels.detach().cpu().numpy())
-            semantic_prediction[gt_labels==255] = 0
+            # gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
+            # gt_labels = np.uint16(gt_labels.detach().cpu().numpy())
+            # semantic_prediction[gt_labels==255] = 0
             # print("gt.shape: ", semantic_prediction.shape)
             # remap
             # TODO: Do Something with the results -> save, etc
@@ -115,9 +111,9 @@ def main():
             semantic_prediction = remap_lut[semantic_prediction]
             semantic_prediction = np.uint16(semantic_prediction)
             try:
-                filename = "output/valid/sequences/{}/predictions/{}.label".format(filenames[0][0],filenames[0][1])
+                filename = "output/test/sequences/{}/predictions/{}.label".format(filenames[0][0],filenames[0][1])
             except:
-                new_dir = "output/valid/sequences/{}/predictions".format(filenames[0][0])
+                new_dir = "output/test/sequences/{}/predictions".format(filenames[0][0])
                 print("creating file: ", new_dir)
                 try:
                     os.mkdir(new_dir)

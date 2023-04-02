@@ -25,8 +25,8 @@ remapdict = kitti_config["learning_map"]
 SPLIT_SEQUENCES = {
     "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
     "valid": ["08"],
-    "test": ["08"],
-    # "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
+    # "test": ["08"],
+    "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
     "trainval": ["00"],
 }
 
@@ -235,8 +235,8 @@ class SemanticKITTIDataset(Dataset):
         """ fill dictionary with available data for given index. """
         '''Load Completion Data'''
         # t=3502 460 31 1051
-        t = 1051
-        print(t)
+        # t = 1051
+        # print(t)
         completion_collection = {}
         if self.augment:
             # stat = np.random.randint(0,6)
@@ -291,7 +291,7 @@ class SemanticKITTIDataset(Dataset):
             label = scan.sem_label
             label = self.seg_remap_lut[label]
 
-            xyz, remissions, label = self.points_in_range(xyz,remissions,label)
+            # xyz, remissions, label = self.points_in_range(xyz,remissions,label)
 
             if config.MODEL.USE_COORDS:
                 feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
@@ -326,7 +326,7 @@ class SemanticKITTIDataset(Dataset):
                     xyz_aux = scan.points
                     label_aux = scan.sem_label
                     label_aux = self.seg_remap_lut[label_aux]
-                    xyz_aux, remissions_aux, label_aux = self.points_in_range(xyz_aux,remissions_aux,label_aux)
+                    # xyz_aux, remissions_aux, label_aux = self.points_in_range(xyz_aux,remissions_aux,label_aux)
                     xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
                     # Transform to the same coordinate system as the first frame using homogeneous transformations
                     Ti = self.all_poses[split][i]
