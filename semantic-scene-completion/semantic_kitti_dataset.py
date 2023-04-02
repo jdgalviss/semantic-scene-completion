@@ -502,6 +502,8 @@ class SemanticKITTIDataset(Dataset):
 
     def data_augmentation(self, t, flip_mode, rot_zyx=[0,0,0], level=64, inp = False, inverse=False):
         rot_zyx_flipped =  rot_zyx.copy()# TODO (juan.galvis): correction for unwanted flip
+        rot_zyx_flipped = [-rot_zyx[0], -rot_zyx[1], -rot_zyx[2]]
+    
         assert t.dim() == 4, 'input dimension should be 4!'
         
         # ROTATION
@@ -524,7 +526,8 @@ class SemanticKITTIDataset(Dataset):
             # keep values inside bounds
             valid = torch.where((locs_aug[:,1]>=0) & (locs_aug[:,2]>=0 ) & (locs_aug[:,3]>=0) & (locs_aug[:,1]<=(level-1)) & (locs_aug[:,2]<=(level-1)) & (locs_aug[:,3]<=((level/8)-1)))
             locs_aug = locs_aug[valid[0]]
-            values = values[valid[0]]
+            values = t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]]
+            locs_aug = locs[valid[0]]
             # go back to voxel volume
             aug_t = torch.ones_like(t)*(-1)
             aug_t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]] = values

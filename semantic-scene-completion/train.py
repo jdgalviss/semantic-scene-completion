@@ -22,7 +22,7 @@ epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
 eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600]
 # eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
-    
+
 
 def main():
     re_seed(0)
@@ -50,7 +50,6 @@ def main():
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
         distillation_criteria = DSKDLoss()
-
     # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
 
     # Load checkpoint
