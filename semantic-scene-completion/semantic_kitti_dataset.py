@@ -39,6 +39,20 @@ SPLIT_FILES = {
 
 }
 
+IGNORE_PER_LEVEL = {
+    "64": ["label", "invalid", "labe_128", "invalid_128"],
+    "128": ["label", "invalid"],
+    "256": [],
+    "FULL": [],
+}
+
+SCALE_PER_LEVEL = {
+    "64": "_64",
+    "128": "_128",
+    "256": "", #aka 256
+    "FULL": "",  #aka 256
+}
+
 EXT_TO_NAME = {".bin": "input", ".label": "label", ".label_128": "label_128", ".label_64": "label_64", ".invalid": "invalid", ".invalid_128": "invalid_128", ".invalid_64": "invalid_64", ".occluded": "occluded"}
 scan = laserscan.SemLaserScan(nclasses=20, sem_color_dict=kitti_config['color_map'])
 
@@ -126,10 +140,8 @@ class SemanticKITTIDataset(Dataset):
             # Read calib file
             calib_path = complete_path.replace('voxels','calib.txt')
             calib = self.read_calib(calib_path)
-            # T_inv = np.linalg.inv(calib['Tr'])
             Tr = calib['Tr']
             Tr_inv = np.linalg.inv(calib['Tr'])
-
             with open(poses_path, 'r') as f:
                 for line in f.readlines():
                     if line == '\n':
@@ -172,25 +184,7 @@ class SemanticKITTIDataset(Dataset):
         # sanity check:
         for k, v in self.files.items():
             assert (len(v) == self.num_files)
-        if split == 'train':
-            seg_num_per_class = np.array(config.TRAIN.SEG_NUM_PER_CLASS)
-            complt_num_per_class = np.array(config.TRAIN.COMPLT_NUM_PER_CLASS)
 
-            seg_labelweights = seg_num_per_class / np.sum(seg_num_per_class)
-            self.seg_labelweights = np.power(np.amax(seg_labelweights) / seg_labelweights, 1 / 3.0)
-            compl_labelweights = complt_num_per_class / np.sum(complt_num_per_class)
-            self.compl_labelweights = np.power(np.amax(compl_labelweights) / compl_labelweights, 1 / 3.0)
-            # self.compl_labelweights = np.ones_like(self.compl_labelweights)
-            
-            
-            self.compl_labelweights = 1.0*self.compl_labelweights/np.linalg.norm(self.compl_labelweights)
-
-
-            # self.compl_labelweights[1] = np.amax(self.compl_labelweights)
-        else:
-            self.compl_labelweights = torch.Tensor(np.ones(20) * 3)
-            self.seg_labelweights = torch.Tensor(np.ones(19))
-            self.compl_labelweights[0] = 1
         num_point_features = 8 if config.MODEL.USE_COORDS else 5
         self.voxel_generator = PointToVoxel(
             vsize_xyz=[config.COMPLETION.VOXEL_SIZE]*3,
@@ -239,7 +233,6 @@ class SemanticKITTIDataset(Dataset):
         # print(t)
         completion_collection = {}
         if self.augment:
-            # stat = np.random.randint(0,6)
             flip_mode = np.random.randint(0,4)
             rot_zyx=[np.random.uniform(config.TRAIN.ROT_AUG_Z[0], config.TRAIN.ROT_AUG_Z[1]), 
                     np.random.uniform(config.TRAIN.ROT_AUG_Y[0], config.TRAIN.ROT_AUG_Y[1]),
@@ -248,13 +241,14 @@ class SemanticKITTIDataset(Dataset):
             flip_mode = 0 # set 0 with no augment
             rot_zyx=[0,0,0]
         completion_collection['flip_mode'] = flip_mode
-        # flip_mode = 0
-        # rot_zyx=[0,0,10]
+        # flip_mode = 1
+        # rot_zyx=[-20,-0.5,1]
         # rot_zyx=[0,0,0]
-
 
         # read raw data and unpack (if necessary)
         for typ in self.files.keys():
+            if typ in IGNORE_PER_LEVEL[config.GENERAL.LEVEL]:
+                continue
             if typ == "label" or typ == "label_128" or typ == "label_64":
                 scan_data = np.fromfile(self.files[typ][t], dtype=np.uint16)            
             else:
@@ -359,47 +353,14 @@ class SemanticKITTIDataset(Dataset):
             xyz = scan.points
             remissions = scan.remissions
 
-            if not config.MODEL.MULTI_ONLY:
-                if config.MODEL.USE_COORDS:
-                    feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
-                else:
-                    feature = remissions.reshape(-1, 1)
+            if config.MODEL.USE_COORDS:
+                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
             else:
-                split, idx = self.filenames[t]
-                idx = int(idx)
-                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<(self.samples_per_split[split]-1)]
-                id_multi = np.zeros_like(remissions, dtype=np.uint8)
-                xyz_multi_raw = xyz.copy()
-                T0 = self.all_poses[split][idx]
-                count = 1
-                for i in extra_idxs:
-                    aux_point_name = seg_point_name.replace("{:06d}.bin".format(idx), "{:06d}.bin".format(i))
-                    scan.open_scan(aux_point_name)
-
-                    remissions_aux = scan.remissions
-                    xyz_aux = scan.points
-                    xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
-                    # Transform to the same coordinate system as the first frame using homogeneous transformations
-                    Ti = self.all_poses[split][i]
-                    # T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
-                    T = np.matmul(np.linalg.inv(T0),Ti)
-                    xyz_aux_h = np.concatenate([xyz_aux, np.ones((xyz_aux.shape[0], 1))], axis=1)
-                    xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
-                    xyz = np.concatenate((xyz, xyz_aux), axis=0)
-
-                    remissions = np.concatenate((remissions, remissions_aux), axis=0)
-                    id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_aux,dtype=np.uint8)), axis=0)
-                    count += 1
-                if config.MODEL.USE_COORDS:
-                    feature = np.concatenate([xyz_multi_raw, remissions.reshape(-1, 1)], 1)
-                else:
-                    feature = remissions.reshape(-1, 1)
-                # Add noise augmentation to input data
-                if self.augment:
-                    feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
+                feature = remissions.reshape(-1, 1)
+            
             label = None
 
-        # Rotate augmentation input
+        # Augmentations
         if self.augment:
             # Drop points randomly from pointcloud
             keep_idxs = np.random.uniform(size=xyz.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
@@ -419,38 +380,14 @@ class SemanticKITTIDataset(Dataset):
                 xyz[:,1] = -xyz[:,1]
             
             if config.MODEL.DISTILLATION:
-                # Drop points randomly from pointcloud
-                keep_idxs = np.random.uniform(size=xyz_multi.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
-                xyz_multi = xyz_multi[keep_idxs]
-                label_multi = label_multi[keep_idxs]
-                feature_multi = feature_multi[keep_idxs]
-                id_multi = id_multi[keep_idxs]
                 # rotate
                 xyz_multi = np.matmul(xyz_multi,r)
-                # Add translations
-                translation = (np.random.normal(size=xyz_multi.shape))*0.04
-                mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
-                translation[mask] = 0.0
-                xyz_multi+=translation
                 if flip_mode == 1 or flip_mode == 2:
                     xyz_multi[:,1] = -xyz_multi[:,1]
             
-            # # Update feature
-            # if config.MODEL.USE_COORDS:
-            #     feature[:,:-1] = xyz
-            #     if config.MODEL.DISTILLATION:
-            #         feature_multi[:,:-1] = xyz_multi
-
         '''Process Segmentation Data'''
         segmentation_collection = {}
         coords, label, feature, idxs, m, random1, random2 = self.process_seg_data(xyz, label, feature)
-        # coords = coords[:, [3,0,1,2]]
-        # Normalize segmentation features
-        # if config.MODEL.USE_COORDS:
-        #     feature[:,0] /= 80.0
-        #     feature[:,1] /= 80.0
-        #     feature[:,2] /= 10.0
-            # feature[:,3] = feature[:,3]/0.5 - 1.0
         segmentation_collection.update({
             'coords': coords,
             'label': label,
@@ -464,7 +401,6 @@ class SemanticKITTIDataset(Dataset):
                 'feature_multi': feature_multi,
                 'label_multi': label_multi,
             })
-
         
         if config.MODEL.DISTILLATION:
             segmentation_collection.update({'id_multi': id_multi[idxs_multi]})
@@ -476,7 +412,6 @@ class SemanticKITTIDataset(Dataset):
         aliment_collection = {}
         xyz = xyz[idxs]
         pc = torch.from_numpy(np.concatenate([xyz, np.arange(len(xyz)).reshape(-1,1), feature],-1)) # [x,y,z,idx,remission]
-        
         voxels, coords, num_points_per_voxel = self.voxel_generator(pc)
 
         features = torch.sum(voxels[:,:,-1], dim=1) / torch.sum(voxels[:,:,-1] != 0, dim=1).clamp(min=1).float()
@@ -485,25 +420,24 @@ class SemanticKITTIDataset(Dataset):
         features = features[coords[:,2] < 32] # clamp to 32
         coords = coords[coords[:,2] < 32,:] # clamp to 32
         voxel_centers = (torch.flip(coords,[-1]) + 0.5) 
-
         coords = coords.long()
 
-        # print(voxel_centers.shape)
         voxel_centers *= torch.Tensor(self.voxel_generator.vsize)
         voxel_centers += torch.Tensor(self.voxel_generator.coors_range[0:3])
         
         # Input/Output for 2D BEV prediction model
         intensity_voxels = torch.zeros((1,256,256,32))
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
-        input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
 
         if self.split != 'test':
-            bev_labels = get_bev(completion_collection['label'])
+            bev_labels = get_bev(completion_collection['label{}'.format(SCALE_PER_LEVEL[config.GENERAL.LEVEL])])
             aliment_collection.update({'bev_labels': bev_labels})
-            completion_collection.update({'frustum_mask': completion_collection['label'] != -1})
-            completion_collection['label'][completion_collection['label']==-1] = 255
-            completion_collection['label_128'][completion_collection['label_128']==-1] = 255
+            completion_collection.update({'frustum_mask': completion_collection['label_64'] != -1})
             completion_collection['label_64'][completion_collection['label_64']==-1] = 255
+            if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                completion_collection['label_128'][completion_collection['label_128']==-1] = 255
+                if config.GENERAL.LEVEL == "FULL":
+                    completion_collection['label'][completion_collection['label']==-1] = 255
 
         aliment_collection.update({
             'voxels': voxels,
@@ -511,10 +445,7 @@ class SemanticKITTIDataset(Dataset):
             'voxel_centers': voxel_centers,
             'num_points_per_voxel': num_points_per_voxel,
             'features': features,
-            'input2d': input2d,
         })
-
-        
 
         if config.MODEL.DISTILLATION:
             xyz_multi = xyz_multi[idxs_multi]
@@ -640,23 +571,18 @@ def Merge(tbl):
     complet_invalid = []
     complet_invalid_64 = []
     complet_invalid_128 = []
-
     voxel_centers = []
     complet_invoxel_features = []
     complet_labels = []
     complet_labels_64 = []
     complet_labels_128 = []
-
     complet_features = []
-    input2d = []
     bev_labels = []
     frustum_mask = []
-
-
     filenames = []
-    offset = 0
     input_vx = []
     stats = []
+    offset = 0
 
     if config.MODEL.DISTILLATION:
         voxel_centers_multi = []
@@ -667,6 +593,7 @@ def Merge(tbl):
         seg_labels_multi = []
         complet_invoxel_features_multi = []
         offset_multi = 0
+
     for idx, example in enumerate(tbl):
         filename, completion_collection, aliment_collection, segmentation_collection = example
         '''File Name'''
@@ -679,31 +606,31 @@ def Merge(tbl):
         seg_features.append(segmentation_collection['feature'])
 
         '''Completion'''
+        input_vx.append(completion_collection['input'])
+        frustum_mask.append(completion_collection['frustum_mask'])
+
+        complet_labels_64.append(completion_collection['label_64'])
+        complet_invalid_64.append(completion_collection['invalid_64'])
+        if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+            complet_labels_128.append(completion_collection['label_128'])
+            complet_invalid_128.append(completion_collection['invalid_128'])
+            if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                complet_labels.append(completion_collection['label'])
+                complet_invalid.append(completion_collection['invalid'])
+        stats.append(completion_collection['flip_mode'])
+
         complet_coord = aliment_collection['coords']
         complet_coord = torch.cat([torch.Tensor(complet_coord.shape[0], 1).fill_(idx), complet_coord.float()], 1)
         complet_coords.append(complet_coord)
-
-
-        input_vx.append(completion_collection['input'])
-        complet_labels.append(completion_collection['label'])
-        complet_labels_128.append(completion_collection['label_128'])
-        complet_labels_64.append(completion_collection['label_64'])
-        complet_invalid.append(completion_collection['invalid'])
-        complet_invalid_64.append(completion_collection['invalid_64'])
-        complet_invalid_128.append(completion_collection['invalid_128'])
-        frustum_mask.append(completion_collection['frustum_mask'])
-
-        stats.append(completion_collection['flip_mode'])
-
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))
         complet_invoxel_feature = aliment_collection['voxels']
         complet_invoxel_feature[:, :, -2] += offset  # voxel-to-point mapping in the last column
         complet_invoxel_features.append(torch.Tensor(complet_invoxel_feature))
         offset += seg_coord.shape[0]
         complet_features.append(aliment_collection['features'])
-        input2d.append(aliment_collection['input2d'])
         bev_labels.append(aliment_collection['bev_labels'])
 
+        # Additional inputs for multi_pc model whren distillation is enabled
         if config.MODEL.DISTILLATION:
             seg_coord_multi = segmentation_collection['coords_multi']
             seg_coords_multi.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord_multi], 1))
@@ -720,108 +647,77 @@ def Merge(tbl):
             complet_invoxel_feature_multi[:, :, -2] += offset_multi  # voxel-to-point mapping in the last column
             complet_invoxel_features_multi.append(torch.Tensor(complet_invoxel_feature_multi))
             offset_multi += seg_coord_multi.shape[0]
-            
-
     
-    input2d = torch.cat(input2d, 0)
-    bev_labels = torch.cat(bev_labels, 0)
-    complet_invoxel_features = torch.cat(complet_invoxel_features, 0)
-    # complet_features = torch.amax(complet_invoxel_features[:,:,-1], dim=1)
-    complet_features = torch.cat(complet_features, 0)
-
+    # Field List that will include all the dateafields
+    complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     
     one = torch.ones([1])
     zero = torch.zeros([1])
-    complet_labels = torch.cat(complet_labels, 0)
-    complet_labels_128 = torch.cat(complet_labels_128, 0)
-    complet_labels_64 = torch.cat(complet_labels_64, 0)
-    complet_invalid = torch.cat(complet_invalid, 0) 
-    complet_invalid_128 = torch.cat(complet_invalid_128, 0)
-    complet_invalid_64 = torch.cat(complet_invalid_64, 0)
-    complet_coords = torch.cat(complet_coords, 0)
-    invalid_locs = torch.nonzero(complet_invalid[0])
-    invalid_locs_128 = torch.nonzero(complet_invalid_128[0])
-    invalid_locs_64 = torch.nonzero(complet_invalid_64[0])
     frustum_mask = torch.cat(frustum_mask, 0)
-    
-    # input_vx = torch.cat(input_vx, 0)    
-    # input_coords = torch.nonzero(input_vx)
-
-     # invalid locations
-    complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
-    invalid_locs = torch.where(complet_labels > 255)
-    complet_labels[invalid_locs] = 255
-    # complet_occupancy = torch.where(torch.logical_and(complet_labels > 0, complet_labels < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-    complet_occupancy = torch.where(complet_labels > 0  , one, zero)
-
-    
-    # complet_labels_128 = F.max_pool3d(complet_labels.float(), kernel_size=2, stride=2).int()
-    # complet_occupancy_128 = F.max_pool3d(complet_occupancy.float(), kernel_size=2, stride=2)
-    complet_labels_128[0, invalid_locs_128[:, 0], invalid_locs_128[:, 1], invalid_locs_128[:, 2]] = 255
-    invalid_locs = torch.where(complet_labels_128 > 255)
-    complet_labels_128[invalid_locs] = 255
-    complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
-    # complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-
-
+    # LEVEL 64
+    complet_labels_64 = torch.cat(complet_labels_64, 0)
+    complet_invalid_64 = torch.cat(complet_invalid_64, 0)
+    invalid_locs_64 = torch.nonzero(complet_invalid_64[0])
     # complet_labels_64 = F.max_pool3d(complet_labels_128.float(), kernel_size=2, stride=2).int()
     # complet_occupancy_64 = F.max_pool3d(complet_occupancy_128.float(), kernel_size=2, stride=2)
     complet_labels_64[0, invalid_locs_64[:, 0], invalid_locs_64[:, 1], invalid_locs_64[:, 2]] = 255
     invalid_locs = torch.where(complet_labels_64 > 255)
     complet_labels_64[invalid_locs] = 255
     complet_occupancy_64 = torch.where(complet_labels_64 > 0, one, zero)
-    # complet_occupancy_64 = torch.where(torch.logical_and(complet_labels_64 > 0, complet_labels_64 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
-    complet_valid = complet_labels != 255
+    complet_inputs.add_field("complet_occupancy_64", complet_occupancy_64)
+    complet_inputs.add_field("complet_labels_64", complet_labels_64)
 
-    
+    # Level 128
+    if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+        complet_labels_128 = torch.cat(complet_labels_128, 0)
+        complet_invalid_128 = torch.cat(complet_invalid_128, 0)
+        invalid_locs_128 = torch.nonzero(complet_invalid_128[0])
+        # complet_labels_128 = F.max_pool3d(complet_labels.float(), kernel_size=2, stride=2).int()
+        complet_labels_128[0, invalid_locs_128[:, 0], invalid_locs_128[:, 1], invalid_locs_128[:, 2]] = 255
+        invalid_locs = torch.where(complet_labels_128 > 255)
+        complet_labels_128[invalid_locs] = 255
+        complet_occupancy_128 = torch.where(complet_labels_128 > 0  , one, zero)
+        # complet_occupancy_128 = torch.where(torch.logical_and(complet_labels_128 > 0, complet_labels_128 < 255), one, zero) # TODO: is invalid occupied or unoccupied?
+        complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
+        complet_inputs.add_field("complet_labels_128", complet_labels_128)
 
+        # Level 256
+        if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+            complet_labels = torch.cat(complet_labels, 0)
+            complet_invalid = torch.cat(complet_invalid, 0) 
+            invalid_locs = torch.nonzero(complet_invalid[0])
+            complet_valid = complet_labels != 255
+            # invalid locations
+            complet_labels[0,invalid_locs[:,0], invalid_locs[:,1], invalid_locs[:,2]] = 255
+            invalid_locs = torch.where(complet_labels > 255)
+            complet_labels[invalid_locs] = 255
+            complet_occupancy = torch.where(complet_labels > 0  , one, zero)
+            complet_inputs.add_field("complet_labels_256", complet_labels)
+            complet_inputs.add_field("complet_occupancy_256", complet_occupancy)
+            complet_inputs.add_field("complet_valid", complet_valid)
 
-    complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
-    if not config.MODEL.MULTI_ONLY:
+    complet_inputs.add_field("bev_labels", torch.cat(bev_labels, 0))
+    complet_inputs.add_field("frustum_mask", frustum_mask)
+
+    if not config.MODEL.MULTI_ONLY: # If single scan model is being trained, we need the single scan inputs
         complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
         complet_inputs.add_field("seg_labels", torch.cat(seg_labels, 0))
         complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
-        complet_inputs.add_field("complet_coords", complet_coords.unsqueeze(0))
-        complet_inputs.add_field("complet_features", complet_features.unsqueeze(0))
+        complet_inputs.add_field("complet_coords", torch.cat(complet_coords, 0).unsqueeze(0))
+        complet_inputs.add_field("complet_features", torch.cat(complet_features, 0).unsqueeze(0))
         complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
-        complet_inputs.add_field("complet_invoxel_features", complet_invoxel_features)
-    complet_inputs.add_field("complet_valid", complet_valid)
-    complet_inputs.add_field("complet_labels_256", complet_labels)
-    complet_inputs.add_field("complet_occupancy_256", complet_occupancy)
-    complet_inputs.add_field("complet_labels_128", complet_labels_128)
-    complet_inputs.add_field("complet_occupancy_128", complet_occupancy_128)
-    complet_inputs.add_field("complet_labels_64", complet_labels_64)
-    complet_inputs.add_field("complet_occupancy_64", complet_occupancy_64)
+        complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0))
     
-    complet_inputs.add_field("input2d", input2d)
-    complet_inputs.add_field("bev_labels", bev_labels)
-    complet_inputs.add_field("frustum_mask", frustum_mask)
-    
-    if config.MODEL.DISTILLATION:
-        complet_coords_multi = torch.cat(complet_coords_multi, 0)
-        complet_features_multi = torch.cat(complet_features_multi, 0)
-        voxel_centers_multi = torch.cat(voxel_centers_multi, 0)
+    if config.MODEL.DISTILLATION: # If distillation is being used, we need the multi scan inputs
         complet_invoxel_features_multi = torch.cat(complet_invoxel_features_multi, 0)
-
-        complet_inputs.add_field("complet_coords_multi", complet_coords_multi.unsqueeze(0))
-        complet_inputs.add_field("complet_features_multi", complet_features_multi.unsqueeze(0))
-        complet_inputs.add_field("voxel_centers_multi", voxel_centers_multi.unsqueeze(0))
+        complet_inputs.add_field("complet_coords_multi", torch.cat(complet_coords_multi, 0).unsqueeze(0))
+        complet_inputs.add_field("complet_features_multi", torch.cat(complet_features_multi, 0).unsqueeze(0))
+        complet_inputs.add_field("voxel_centers_multi", torch.cat(voxel_centers_multi, 0).unsqueeze(0))
         complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
         complet_inputs.add_field("seg_features_multi", torch.cat(seg_features_multi, 0))
         complet_inputs.add_field("seg_labels_multi", torch.cat(seg_labels_multi, 0))
         complet_inputs.add_field("complet_invoxel_features_multi", complet_invoxel_features_multi)
 
-
-    # complet_inputs.add_field("input_coords", input_coords.unsqueeze(0))
-
-    # print(complet_invoxel_features.shape)
-    # complet_inputs.add_field("voxels", complet_invoxel_features.unsqueeze(0))
-
-
-    # del seg_inputs, completion_collection, filenames
-    # seg_inputs = None
-    # completion_collection = None
-    # filenames = None
     return filenames, complet_inputs, None, filenames
 
 def MergeTest(tbl):

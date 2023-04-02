@@ -50,8 +50,6 @@ def main():
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
         distillation_criteria = DSKDLoss()
-        
-        
 
     # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
 
@@ -99,6 +97,7 @@ def main():
     consecutive_fails = 0
     # ===== Training loop =====
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
+        
         update_level(config, epoch) # Updates config.GENERAL.LEVEL
         pbar = tqdm(train_dataloader)
         train_writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
@@ -112,7 +111,7 @@ def main():
 
             if config.MODEL.DISTILLATION:
                 try:
-                    with torch,.no_grad():
+                    with torch.no_grad():
                         _, _, features_teacher, _ = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
                 except Exception as e:
                     print(e, "Error in forward pass teacher: ", iteration)
@@ -130,17 +129,17 @@ def main():
             # Get tensors from batch
 
             # forward pass
-            try:
-                _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
-            except Exception as e:
-                print(e, "Error in forward pass: ", iteration)
-                consecutive_fails += 1
-                if consecutive_fails > 100:
-                    print("Too many consecutive fails, exiting")
-                    return
-                del complet_inputs
-                torch.cuda.empty_cache()
-                continue
+            # try:
+            _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            # except Exception as e:
+            #     print(e, "Error in forward pass: ", iteration)
+            #     consecutive_fails += 1
+            #     if consecutive_fails > 100:
+            #         print("Too many consecutive fails, exiting")
+            #         return
+            #     del complet_inputs
+            #     torch.cuda.empty_cache()
+            #     continue
             consecutive_fails = 0
             
 
@@ -267,9 +266,9 @@ def main():
                             input_bev = get_bev(voxels)
                             input_bev = input_to_cmap2d(input_bev)
                             log_images[dataloader_name].append((input_bev[0]))
-
                             bev_labels = collect(complet_inputs, "bev_labels")
-                            bev_gt = labels_to_cmap2d(bev_labels)
+                            bev_gt = F.interpolate(bev_labels.unsqueeze(0).float(), size=(256,256), mode="nearest")[0]
+                            bev_gt = labels_to_cmap2d(bev_gt)
                             log_images[dataloader_name].append((bev_gt[0]))
                         
                         # iou for pointcloud segmentation
