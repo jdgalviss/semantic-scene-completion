@@ -284,17 +284,6 @@ class SemanticKITTIDataset(Dataset):
             xyz = scan.points
             label = scan.sem_label
             label = self.seg_remap_lut[label]
-
-            # xyz, remissions, label = self.points_in_range(xyz,remissions,label)
-
-            if config.MODEL.USE_COORDS:
-                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
-            else:
-                feature = remissions.reshape(-1, 1)
-
-            # Add noise augmentation to input data
-            if self.augment:
-                feature += np.random.randn(*feature.shape)*config.TRAIN.NOISE_LEVEL
             
             if config.MODEL.DISTILLATION:
                 split, idx = self.filenames[t]
@@ -335,57 +324,64 @@ class SemanticKITTIDataset(Dataset):
                     id_multi = np.concatenate((id_multi, count*np.ones_like(label_aux)), axis=0)
                     count += 1
 
-                if config.MODEL.USE_COORDS:
-                    feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
-                else:
-                    feature_multi = remissions_multi.reshape(-1, 1)
-                # Add noise augmentation to input data
-                if self.augment:
-                    feature_multi += np.random.randn(*feature_multi.shape)*config.TRAIN.NOISE_LEVEL
-                # print("t:", t)
-                # poses = self.read_poses(poses_file)
-                # proj_matrix = np.matmul(calib['P2'], calib['Tr'])
-            
         else:
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
             scan.open_scan(seg_point_name)
             
             xyz = scan.points
             remissions = scan.remissions
-
-            if config.MODEL.USE_COORDS:
-                feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
-            else:
-                feature = remissions.reshape(-1, 1)
-            
             label = None
 
-        # Augmentations
+        # Augmentations Point cloud
         if self.augment:
+            remissions += np.random.randn(*remissions.shape)*config.TRAIN.NOISE_LEVEL
+
             # Drop points randomly from pointcloud
-            keep_idxs = np.random.uniform(size=xyz.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
+            pc_drop_prob = np.random.uniform(low=0.0, high=config.TRAIN.RANDOM_PC_DROP_AUG)
+            keep_idxs = np.random.uniform(size=xyz.shape[0]) < (1.0 - pc_drop_prob)
             xyz = xyz[keep_idxs]
             label = label[keep_idxs]
-            feature = feature[keep_idxs]
+            remissions = remissions[keep_idxs]
             # rotate
             r = R.from_euler('zyx', rot_zyx, degrees=True)
             r = r.as_matrix()
             xyz = np.matmul(xyz,r)
-            # Add translations
-            translation = (np.random.normal(size=xyz.shape))*0.04
-            mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
-            translation[mask] = 0.0
-            xyz+=translation
             if flip_mode == 1 or flip_mode == 2:
                 xyz[:,1] = -xyz[:,1]
             
             if config.MODEL.DISTILLATION:
+                remissions_multi += np.random.randn(*remissions_multi.shape)*config.TRAIN.NOISE_LEVEL
+                # Drop points randomly from pointcloud
+                pc_drop_prob = np.random.uniform(low=0.0, high=config.TRAIN.RANDOM_PC_DROP_AUG)
+                keep_idxs = np.random.uniform(size=xyz_multi.shape[0]) < (1.0 - pc_drop_prob)
+                xyz_multi = xyz_multi[keep_idxs]
+                xyz_multi_raw = xyz_multi_raw[keep_idxs]
+                label_multi = label_multi[keep_idxs]
+                remissions_multi = remissions_multi[keep_idxs]
+                id_multi = id_multi[keep_idxs]
+                # Add translations
+                translation = (np.random.normal(size=xyz_multi.shape))*0.04
+                mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
+                translation[mask] = 0.0
+                xyz_multi+=translation
                 # rotate
                 xyz_multi = np.matmul(xyz_multi,r)
                 if flip_mode == 1 or flip_mode == 2:
                     xyz_multi[:,1] = -xyz_multi[:,1]
             
         '''Process Segmentation Data'''
+        if config.MODEL.USE_COORDS:
+            feature = np.concatenate([xyz, remissions.reshape(-1, 1)], 1)
+        else:
+            feature = remissions.reshape(-1, 1)
+
+        # Translation augmentation (not applied to pointcloud features because it disrupts pretrained model)
+        if self.augment:
+            translation = (np.random.normal(size=xyz.shape))*0.04
+            # mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
+            # translation[mask] = 0.0
+            xyz+=translation
+            
         segmentation_collection = {}
         coords, label, feature, idxs, m, random1, random2 = self.process_seg_data(xyz, label, feature)
         segmentation_collection.update({
@@ -395,6 +391,11 @@ class SemanticKITTIDataset(Dataset):
         })
 
         if config.MODEL.DISTILLATION:
+            if config.MODEL.USE_COORDS:
+                feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
+            else:
+                feature_multi = remissions_multi.reshape(-1, 1)
+            
             coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
             segmentation_collection.update({
                 'coords_multi': coords_multi,

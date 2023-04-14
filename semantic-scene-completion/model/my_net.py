@@ -39,18 +39,23 @@ class MyModel(nn.Module):
         losses, results = {}, {}
         seg_feat = None
         if config.MODEL.SEG_HEAD:
-            
-            complet_invoxel_features = collect(batch, "complet_invoxel_features{}".format(self.suffix))
-            voxel_centers = collect(batch, "voxel_centers{}".format(self.suffix))
-            seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords{}".format(self.suffix)), 
-                                               feat=collect(batch, "seg_features{}".format(self.suffix)),
-                                               label=collect(batch, "seg_labels{}".format(self.suffix)),
-                                               weights=seg_weights)
-
             if not config.SEGMENTATION.TRAIN:
-                seg_out = seg_out.detach()
-                seg_feat = seg_feat.detach()
-                loss = loss.detach()
+                self.seg_model.eval()
+                with torch.no_grad():
+                    complet_invoxel_features = collect(batch, "complet_invoxel_features{}".format(self.suffix))
+                    voxel_centers = collect(batch, "voxel_centers{}".format(self.suffix))
+                    seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords{}".format(self.suffix)), 
+                                                    feat=collect(batch, "seg_features{}".format(self.suffix)),
+                                                    label=collect(batch, "seg_labels{}".format(self.suffix)),
+                                                    weights=seg_weights)
+            else:
+                complet_invoxel_features = collect(batch, "complet_invoxel_features{}".format(self.suffix))
+                voxel_centers = collect(batch, "voxel_centers{}".format(self.suffix))
+                seg_out, seg_feat, loss = self.seg_model(coords=collect(batch, "seg_coords{}".format(self.suffix)), 
+                                                feat=collect(batch, "seg_features{}".format(self.suffix)),
+                                                label=collect(batch, "seg_labels{}".format(self.suffix)),
+                                                weights=seg_weights)
+
 
             # pool feature vector before passing it as input to completion network
             seg_feat = torch.cat([seg_feat, seg_out],dim=1)

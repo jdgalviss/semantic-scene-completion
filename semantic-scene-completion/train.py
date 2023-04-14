@@ -13,7 +13,7 @@ from distillation_loss import DSKDLoss
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, CosineAnnealingWarmupRestarts
 from utils.path_utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
@@ -46,6 +46,7 @@ def main():
                                         betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                         weight_decay=config.SOLVER.WEIGHT_DECAY)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+    # lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*10, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.6)
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
@@ -104,6 +105,10 @@ def main():
         
         # Training
         for i, batch in enumerate(pbar):
+            # if cosine_annealing:
+            # train_writer.add_scalar('train/lr', lr_scheduler.get_lr()[0], iteration)
+            # Learning rate scheduler step cosine annealing
+            # lr_scheduler.step()
             model.train()
             _, complet_inputs, _, _ = batch
             optimizer.zero_grad()
@@ -147,7 +152,7 @@ def main():
                 factor_compl = 1.0 / (sigma[1]**2)
                 total_loss = factor_compl[0] * losses["occupancy_64"] + 2 * torch.log(sigma[1][0]) + \
                             factor_compl[1] * losses["semantic_64"] + 2 * torch.log(sigma[1][1]) 
-                if config.MODEL.SEG_HEAD:
+                if config.MODEL.SEG_HEAD and config.SEGMENTATION.TRAIN:
                     factor_seg = 1.0 / (sigma[0]**2)
                     total_loss += factor_seg[0] * 0.1 * losses["pc_seg"] + 2 * torch.log(sigma[0][0])
                     train_writer.add_scalar('factors/seg_pc', factor_seg.detach().cpu(), iteration)
@@ -170,7 +175,7 @@ def main():
 
             else:
                 total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
-                if config.MODEL.SEG_HEAD:
+                if config.MODEL.SEG_HEAD and config.SEGMENTATION.TRAIN:
                     total_loss += losses["pc_seg"]*config.MODEL.PC_SEG_WEIGHT
                 if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
