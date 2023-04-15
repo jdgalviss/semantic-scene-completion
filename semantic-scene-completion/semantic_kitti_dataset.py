@@ -527,6 +527,7 @@ class SemanticKITTIDataset(Dataset):
             # keep values inside bounds
             valid = torch.where((locs_aug[:,1]>=0) & (locs_aug[:,2]>=0 ) & (locs_aug[:,3]>=0) & (locs_aug[:,1]<=(level-1)) & (locs_aug[:,2]<=(level-1)) & (locs_aug[:,3]<=((level/8)-1)))
             locs_aug = locs_aug[valid[0]]
+            # values = values[valid[0]]
             values = t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]]
             locs_aug = locs[valid[0]]
             # go back to voxel volume
