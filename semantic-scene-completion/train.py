@@ -13,7 +13,7 @@ from distillation_loss import DSKDLoss
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, CosineAnnealingWarmupRestarts
 from utils.path_utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
@@ -45,14 +45,13 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
                                         betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                         weight_decay=config.SOLVER.WEIGHT_DECAY)
-    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+    # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*10, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.6)
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
         distillation_criteria = DSKDLoss()
         
-        
-
     # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
 
     # Load checkpoint
@@ -101,18 +100,22 @@ def main():
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         update_level(config, epoch) # Updates config.GENERAL.LEVEL
         pbar = tqdm(train_dataloader)
-        train_writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
+        # train_writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
         train_writer.add_scalar('epoch', epoch, iteration)
         
         # Training
         for i, batch in enumerate(pbar):
+            # if cosine_annealing:
+            train_writer.add_scalar('train/lr', lr_scheduler.get_lr()[0], iteration)
+            # Learning rate scheduler step cosine annealing
+            lr_scheduler.step()
             model.train()
             _, complet_inputs, _, _ = batch
             optimizer.zero_grad()
 
             if config.MODEL.DISTILLATION:
                 try:
-                    with torch,.no_grad():
+                    with torch.no_grad():
                         _, _, features_teacher, _ = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
                 except Exception as e:
                     print(e, "Error in forward pass teacher: ", iteration)
@@ -216,7 +219,7 @@ def main():
                 del features_teacher
             torch.cuda.empty_cache()
         # Learning rate scheduler step
-        lr_scheduler.step()
+        # lr_scheduler.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
@@ -363,8 +366,8 @@ def main():
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
                     num_rows = 4 if config.MODEL.UNET2D else 3
-                    if config.MODEL.DISTILLATION:
-                        num_rows += 2
+                    # if config.MODEL.DISTILLATION:
+                    #     num_rows += 2
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
             
