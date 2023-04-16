@@ -14,7 +14,7 @@ from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
 from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
-from utils.path_utils import create_new_experiment_folder, save_config
+from utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 
@@ -76,8 +76,8 @@ def main():
             print("\n------Evaluating {} set on {} samples------".format(dataloader_name, len(dataloader)))
             
             levels = ["256"] #["64", "128", "256"]
-            # if config.MODEL.SEG_HEAD:
-            #     levels.append("seg")
+            if config.MODEL.SEG_HEAD:
+                levels.append("seg")
             for i, batch in enumerate(tqdm(dataloader)):
                 _, complet_inputs, _, _ = batch
                 try:
@@ -88,15 +88,15 @@ def main():
             
                 # log images of BEVs to tensorboard
                 
-                # # iou for pointcloud segmentation
-                # if config.MODEL.SEG_HEAD:
-                #     pc_seg_pred = results['pc_seg']
-                #     pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
-                #     pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()
-                #     pc_seg_gt = collect(complet_inputs, "seg_labels").cpu().detach().numpy()
-                #     pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
-                #     pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
-                #     seg_evaluators["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
+                # iou for pointcloud segmentation
+                if config.MODEL.SEG_HEAD:
+                    pc_seg_pred = results['pc_seg']
+                    pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
+                    pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()
+                    pc_seg_gt = collect(complet_inputs, "seg_labels").cpu().detach().numpy()
+                    pc_seg_pred = pc_seg_pred[pc_seg_gt != -100]
+                    pc_seg_gt = pc_seg_gt[pc_seg_gt != -100]
+                    seg_evaluators["seg"].addBatch(pc_seg_pred.astype(int)+1, pc_seg_gt.astype(int)+1)
 
                 for level in levels:
                     if level=="seg": # this doesn't apply for pointcloud segmentation

@@ -14,7 +14,7 @@ from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
 from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
-from utils.path_utils import create_new_experiment_folder, save_config
+from utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 

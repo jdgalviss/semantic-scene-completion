@@ -9,6 +9,7 @@ from .sparse_unet import MinkUNet14E
 device = torch.device("cuda:0")
 
 class SparseSegNet(nn.Module):
+    '''3D Sparse UNet for pointcloud semantic segmentation.'''
     def __init__(self, **kwargs):
         super().__init__()
         input_dim = 4 if config.MODEL.USE_COORDS else 1

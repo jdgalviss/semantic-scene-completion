@@ -14,7 +14,7 @@ from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
 from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
-from utils.path_utils import create_new_experiment_folder, save_config
+from utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 
@@ -131,17 +131,20 @@ def main():
                     total_loss.backward()
                     teacher_optimizer.step()
                     # logging
+                    log_msg = {"epoch": epoch}
+                    log_msg["level"] = config.GENERAL.LEVEL
                     for k, v in losses_teacher.items():
                         if "256" in k:
-                            train_writer.add_scalar('train_256/teacher_'+k, v.detach().cpu(), iteration)
+                            train_writer.add_scalar('train_256/'+k, v.detach().cpu(), iteration)
                         elif "128" in k:
-                            train_writer.add_scalar('train_128/teacher_'+k, v.detach().cpu(), iteration)
+                            train_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
                         elif "64" in k:
-                            train_writer.add_scalar('train_64/teacher_'+k, v.detach().cpu(), iteration)
+                            train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
                     if config.MODEL.SEG_HEAD:
-                        train_writer.add_scalar('train/seg_pc_teacher', losses_teacher["pc_seg"].detach().cpu(), iteration)  
-
-                train_writer.add_scalar('train/total_loss_teacher', total_loss.detach().cpu(), iteration)
+                        train_writer.add_scalar('train/seg_pc', losses_teacher["pc_seg"].detach().cpu(), iteration)  
+                    log_msg["total_loss"] = total_loss.item()
+                    pbar.set_postfix(log_msg)
+                train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
                 features_teacher = [f.detach() for f in features_teacher]
 
                 del total_loss, losses_teacher
@@ -203,6 +206,7 @@ def main():
                     
                         # log images of BEVs to tensorboard
                         if i in eval_imgs_idxs:
+                            # bev gt
                             bev_labels = collect(complet_inputs, "bev_labels")
                             bev_gt = labels_to_cmap2d(bev_labels)
                             log_images[dataloader_name].append((bev_gt[0]))
@@ -215,7 +219,6 @@ def main():
                                 input_bev = get_bev(voxels)
                                 input_bev = input_to_cmap2d(input_bev)
                                 log_images[dataloader_name].append((input_bev[0]))
-                        
                         # iou for pointcloud segmentation
                         if config.MODEL.SEG_HEAD:
                             if config.MODEL.DISTILLATION:
@@ -286,7 +289,7 @@ def main():
                             ignore = [0]
                             for i, jacc in enumerate(class_jaccard):
                                 if i not in ignore:
-                                    writers[dataloader_name].add_scalar('eval-{}/{}_teacher'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
+                                    writers[dataloader_name].add_scalar('eval-{}/{}'.format(level,seg_label_to_cat[i]), jacc*100, epoch)
                                     # print('IoU class {i:} [{class_str:}] = {jacc:.3f}'.format(
                                     #     i=i, class_str=seg_label_to_cat[i], jacc=jacc*100))
                             print('{} point avg class IoU: {}'.format(dataloader_name,m_jaccard*100))
@@ -295,10 +298,10 @@ def main():
                             precision = np.sum(conf[1:,1:]) / (np.sum(conf[1:,:]) + epsilon)
                             recall = np.sum(conf[1:,1:]) / (np.sum(conf[:,1:]) + epsilon)
                             acc_cmpltn = (np.sum(conf[1:, 1:])) / (np.sum(conf) - conf[0,0])
-                            writers[dataloader_name].add_scalar('eval-{}/mIoU_teacher'.format(level), m_jaccard*100, epoch)
-                            writers[dataloader_name].add_scalar('eval-{}/precision_teacher'.format(level), precision*100, epoch)
-                            writers[dataloader_name].add_scalar('eval-{}/recall_teacher'.format(level), recall*100, epoch)
-                            writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn_teacher'.format(level), acc_cmpltn*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/mIoU'.format(level), m_jaccard*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/precision'.format(level), precision*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/recall'.format(level), recall*100, epoch)
+                            writers[dataloader_name].add_scalar('eval-{}/acc_cmpltn'.format(level), acc_cmpltn*100, epoch)
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
@@ -322,7 +325,3 @@ if __name__ == '__main__':
     print("\n Training with configuration parameters: \n",config)
 
     main()
-
-            
-
-    

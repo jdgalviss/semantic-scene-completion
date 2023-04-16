@@ -9,7 +9,7 @@ from model import SSCHead
 import MinkowskiEngine as Me
 from torch.nn import functional as F
 from torch.utils.tensorboard import SummaryWriter
-from utils.path_utils import create_new_experiment_folder, save_config
+from utils import create_new_experiment_folder, save_config
 from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d
 from structures import collect
 from evaluation import iouEval

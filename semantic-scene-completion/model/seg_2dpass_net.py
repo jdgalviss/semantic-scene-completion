@@ -11,9 +11,6 @@ import os
 import importlib
 from configs import config
 
-
-
-
 device = torch.device("cuda:0")
 
 class CustomArgumentParser(argparse.ArgumentParser):
@@ -69,10 +66,10 @@ def parse_config():
     return EasyDict(config)
 
 class SparseSegNet2DPASS(nn.Module):
+    '''Wrapper for 2DPASS pointcloud segmentation model'''
     def __init__(self, **kwargs):
         super().__init__()
         configs = parse_config()
-        print("2DPASS config: ", configs)
         self.model = SPVCNN(configs)
         # Load model checkpoint
         os.environ["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, configs.gpu))
@@ -83,7 +80,6 @@ class SparseSegNet2DPASS(nn.Module):
         if configs.checkpoint is not None:
             print('loading pre-trained segmentation model...')
             my_model = my_model.load_from_checkpoint(configs.checkpoint, config=configs, strict=(not configs.pretrain2d))
-
         sd=my_model.model_3d.state_dict()
         self.model.load_state_dict(sd)
         del my_model
