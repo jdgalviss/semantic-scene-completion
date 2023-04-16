@@ -124,7 +124,7 @@ class SSCHead(nn.Module):
         results.update(results_64)
 
         # level-128
-        if predictions[1] is None:
+        if predictions[1][0] is None:
             return losses, results, features
         losses_128, results_128 = self.forward_128(predictions[1], targets, weights)
         
