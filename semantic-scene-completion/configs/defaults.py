@@ -87,7 +87,7 @@ _C.MODEL.SEG_HEAD = True
 _C.MODEL.UNET2D = False
 _C.MODEL.USE_COORDS = True
 _C.MODEL.COMPLETION_INTERACTION = True
-_C.MODEL.DISTILLATION = False
+_C.MODEL.DISTILLATION = True
 _C.MODEL.DISTILLATION_SAMPLES = 3
 
 # -----------------------------------------------------------------------------

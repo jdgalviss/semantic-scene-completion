@@ -2,4 +2,6 @@ GENERAL:
   MANUAL_SEED: 123
   # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/248/modelFULL-14.pth"
   # OVERFIT: True
-  # NUM_SAMPLES_OVERFIT: 
+
+MODEL:
+  DISTILLATION: False
