@@ -305,14 +305,12 @@ def main():
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 4 if config.MODEL.UNET2D else 3
+                    num_rows = 3
                     # if config.MODEL.DISTILLATION:
                         # num_rows += 2
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
             
-            
-
 if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")

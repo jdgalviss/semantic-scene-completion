@@ -342,6 +342,7 @@ class SemanticKITTIDataset(Dataset):
             scan.open_scan(seg_point_name)
             xyz = scan.points
             remissions = scan.remissions
+            label = None
         
         # Create pointcloud feature tensor [N, C]. C=4 for coords+remissions, C=1 for remissions only
         if config.MODEL.USE_COORDS:

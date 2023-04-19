@@ -22,7 +22,7 @@ eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600] # Rand
 # eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
 
 def main():
-    re_seed(0)
+    re_seed(config.GENERAL.MANUAL_SEED)
     # measuring gpu memory
     nvidia_smi.nvmlInit()
     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
@@ -42,8 +42,9 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
                                         betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                         weight_decay=config.SOLVER.WEIGHT_DECAY)
+    
     # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*10, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.6)
+    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*5, cycle_mult=0.7, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.7)
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
@@ -351,7 +352,7 @@ def main():
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 4 if config.MODEL.UNET2D else 3
+                    num_rows = 3
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
             
