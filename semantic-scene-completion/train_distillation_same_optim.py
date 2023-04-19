@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import nvidia_smi
+import time
 from tqdm import tqdm
 from torch.nn import functional as F
 import torchvision
@@ -12,17 +13,19 @@ from distillation_loss import DSKDLoss
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, CosineAnnealingWarmupRestarts
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
 from utils import create_new_experiment_folder, save_config
 from evaluation import iouEval
+torch.autograd.set_detect_anomaly(True)
 
 epsilon = np.finfo(np.float32).eps
 device = torch.device("cuda:0")
-eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600] # Randomly chosen samples from which bev images will be logged in tensorboard
-# eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
+eval_imgs_idxs = [100,200,300,400,500,600,700,800,10,250,370,420,580,600]
+eval_imgs_idxs = [0,4,6,8,10,12,14,16,18]
+    
 
 def main():
-    re_seed(config.GENERAL.MANUAL_SEED)
+    re_seed(0)
     # measuring gpu memory
     nvidia_smi.nvmlInit()
     handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
@@ -38,25 +41,27 @@ def main():
     
     # SSC Model
     model = MyModel().to(device)
-    
-    optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
-                                        betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
-                                        weight_decay=config.SOLVER.WEIGHT_DECAY)
-    
-    # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*5, cycle_mult=0.7, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.7)
-
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
         distillation_criteria = DSKDLoss()
+        # Optimizer
+        optimizer = torch.optim.Adam(list(model.parameters())+list(model_teacher.parameters()), config.SOLVER.BASE_LR,
+                                            betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
+                                            weight_decay=config.SOLVER.WEIGHT_DECAY)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), config.SOLVER.BASE_LR,
+                                            betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
+                                            weight_decay=config.SOLVER.WEIGHT_DECAY)
+    lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
         
+
+    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
+
     # Load checkpoint
     if config.GENERAL.CHECKPOINT_PATH is not None:
         model.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH))
         if config.MODEL.DISTILLATION:
-            model_teacher.load_state_dict(torch.load(config.GENERAL.TEACHER_CHECKPOINT_PATH))
-            model_teacher.eval()
-
+            model_teacher.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH.replace("model","teacher")))
         training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0]) + 1
         print("TRAINING_EPOCH: ", training_epoch)
     else:
@@ -91,55 +96,34 @@ def main():
     seg_labelweights, compl_labelweights = get_labelweights()
     seg_labelweights = seg_labelweights.to(device)
     compl_labelweights = compl_labelweights.to(device)
-    consecutive_fails = 0
+
     # ===== Training loop =====
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         update_level(config, epoch) # Updates config.GENERAL.LEVEL
         pbar = tqdm(train_dataloader)
-        # train_writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
+        train_writer.add_scalar('train/lr', lr_scheduler.get_last_lr()[0], epoch)
         train_writer.add_scalar('epoch', epoch, iteration)
         
         # Training
         for i, batch in enumerate(pbar):
-            # if cosine_annealing:
-            train_writer.add_scalar('train/lr', lr_scheduler.get_lr()[0], iteration)
-            # Learning rate scheduler step cosine annealing
-            lr_scheduler.step()
             model.train()
-            _, complet_inputs, _, _ = batch
-            optimizer.zero_grad()
-
-            if config.MODEL.DISTILLATION:
-                # forward pass teacher multi-pc model
-                try:
-                    with torch.no_grad():
-                        _, _, features_teacher, _ = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
-                except Exception as e:
-                    print(e, "Error in forward pass teacher: ", iteration)
-                    consecutive_fails += 1
-                    if consecutive_fails > 100:
-                        print("Too many consecutive fails, exiting")
-                        return
-                    del complet_inputs
-                    torch.cuda.empty_cache()
-                    continue
             total_loss: torch.Tensor = 0.0
+            if config.MODEL.DISTILLATION:
+                model_teacher.train()
+            optimizer.zero_grad()
+            # Get tensors from batch
+            _, complet_inputs, _, _ = batch
 
-            # forward pass single-pc model
-            try:
-                _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
-            except Exception as e:
-                print(e, "Error in forward pass: ", iteration)
-                consecutive_fails += 1
-                if consecutive_fails > 100:
-                    print("Too many consecutive fails, exiting")
-                    return
-                del complet_inputs
-                torch.cuda.empty_cache()
-                continue
-            consecutive_fails = 0
+            # forward pass
+            _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            if config.MODEL.DISTILLATION:
+                _, losses_teacher, features_teacher, sigma_teacher = model_teacher(complet_inputs, seg_labelweights, compl_labelweights)
+                features_teacher = [f.detach() for f in features_teacher]
+                distillation_loss = distillation_criteria(features, features_teacher)
+                losses_teacher["distillation"] = distillation_loss
+                # losses_teacher["distillation"]: torch.Tensor = 0.0
 
-            # Compute weighted loss
+
             if config.TRAIN.UNCERTAINTY_LOSS:
                 factor_compl = 1.0 / (sigma[1]**2)
                 total_loss = factor_compl[0] * losses["occupancy_64"] + 2 * torch.log(sigma[1][0]) + \
@@ -155,12 +139,31 @@ def main():
                     total_loss += factor_compl[4] * losses["occupancy_256"] + 2 * torch.log(sigma[1][4])
                 if config.GENERAL.LEVEL == "FULL":
                     total_loss += factor_compl[5] * losses["semantic_256"] + 2 * torch.log(sigma[1][5])
+
                 train_writer.add_scalar('factors/complt_64', factor_compl[0].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/seg_64', factor_compl[1].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/complt_128', factor_compl[2].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/seg_128', factor_compl[3].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/complt_256', factor_compl[4].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/seg_256', factor_compl[5].detach().cpu(), iteration)
+
+                if config.MODEL.DISTILLATION:
+                    total_loss += losses_teacher["distillation"]
+                    factor_compl_teacher = 1.0 / (sigma_teacher[1]**2)
+                    total_loss += factor_compl_teacher[0] * losses_teacher["occupancy_64"] + 2 * torch.log(sigma_teacher[1][0]) + \
+                                factor_compl_teacher[1] * losses_teacher["semantic_64"] + 2 * torch.log(sigma_teacher[1][1])
+                    if config.MODEL.SEG_HEAD:
+                        factor_seg_teacher = 1.0 / (sigma_teacher[0]**2)
+                        total_loss += factor_seg_teacher[0] * 0.1 * losses_teacher["pc_seg"] + 2 * torch.log(sigma_teacher[0][0])
+                        # train_writer.add_scalar('factors/seg_pc_teacher', factor_seg_teacher.detach().cpu(), iteration)
+                    if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[2] * losses_teacher["occupancy_128"] + 2 * torch.log(sigma_teacher[1][2]) + \
+                                        factor_compl_teacher[3] * losses_teacher["semantic_128"] + 2 * torch.log(sigma_teacher[1][3])
+                    if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[4] * losses_teacher["occupancy_256"] + 2 * torch.log(sigma_teacher[1][4])
+                    if config.GENERAL.LEVEL == "FULL":
+                        total_loss += factor_compl_teacher[5] * losses_teacher["semantic_256"] + 2 * torch.log(sigma_teacher[1][5])
+
             else:
                 total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
                 if config.MODEL.SEG_HEAD:
@@ -171,10 +174,6 @@ def main():
                     total_loss += losses["occupancy_256"]*config.MODEL.OCCUPANCY_256_WEIGHT 
                 if config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["semantic_256"]*config.MODEL.SEMANTIC_256_WEIGHT
-
-            if config.MODEL.DISTILLATION:
-                distillation_loss = distillation_criteria(features, features_teacher)
-                total_loss += distillation_loss * config.MODEL.DISTILLATION_WEIGHT
 
             # backward pass and learning step
             if torch.is_tensor(total_loss):
@@ -194,17 +193,28 @@ def main():
                 if config.MODEL.SEG_HEAD:
                     train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)  
                 if config.MODEL.DISTILLATION:
-                    train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
+                    for k, v in losses_teacher.items():
+                        if "256" in k:
+                            train_writer.add_scalar('train_256/teacher_'+k, v.detach().cpu(), iteration)
+                        elif "128" in k:
+                            train_writer.add_scalar('train_128/teacher_'+k, v.detach().cpu(), iteration)
+                        elif "64" in k:
+                            train_writer.add_scalar('train_64/teacher_'+k, v.detach().cpu(), iteration)
+                    train_writer.add_scalar('train/distillation', losses_teacher["distillation"].detach().cpu(), iteration)  
+                    if config.MODEL.SEG_HEAD:
+                        train_writer.add_scalar('train/seg_pc_teacher', losses_teacher["pc_seg"].detach().cpu(), iteration)  
+
                 log_msg["total_loss"] = total_loss.item()
                 pbar.set_postfix(log_msg)
+            
             train_writer.add_scalar('train/total_loss', total_loss.detach().cpu(), iteration)
             iteration += 1
             del batch, complet_inputs, total_loss, losses, features
             if config.MODEL.DISTILLATION:
-                del features_teacher
+                del losses_teacher, features_teacher
             torch.cuda.empty_cache()
         # Learning rate scheduler step
-        # lr_scheduler.step()
+        lr_scheduler.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
@@ -213,39 +223,37 @@ def main():
         # Save checkpoint
         if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0: # and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
             torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
+            if config.MODEL.DISTILLATION:
+                torch.save(model_teacher.state_dict(), experiment_dir + "/teacher{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
+
+
 
         # Evaluation
         if epoch % config.TRAIN.EVAL_PERIOD == 0 and config.GENERAL.LEVEL != "256":
             model.eval()
             log_images = {}
             with torch.no_grad():
-                # Evaluation is done on training subset and eval set to detect overfitting
                 for dataloader_name, dataloader in val_dataloaders.items():
-                    # Evaluators on every level
                     seg_evaluators = {"64": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
                                       "128": iouEval(config.SEGMENTATION.NUM_CLASSES, []),  
                                       "256": iouEval(config.SEGMENTATION.NUM_CLASSES, []),
                                       "seg": iouEval(config.SEGMENTATION.NUM_CLASSES, [])}
+
+                    
                     log_images[dataloader_name] = []
+                                    
                     print("\n------Evaluating {} set on {} samples------".format(dataloader_name, len(dataloader)))
-                    # For each hierarchy level, define which other scales are available for multiscale evaluation
                     if config.GENERAL.LEVEL == "64":
                         levels = ["64"]
                     elif config.GENERAL.LEVEL == "128":
-                        levels = ["64","128"]
+                        levels = ["64","128"] # ["64", "128"]
                     elif config.GENERAL.LEVEL == "FULL":
-                        levels = ["64", "128","256"]
+                        levels = ["64", "128","256"] #["64", "128", "256"]
                     if config.MODEL.SEG_HEAD:
                         levels.append("seg")
-                    
-                    # Evaluation loop
                     for i, batch in enumerate(tqdm(dataloader)):
                         _, complet_inputs, _, _ = batch
-                        try:
-                            results = model.inference(complet_inputs)
-                        except Exception as e:
-                            print(e, "Error in forward pass - evaluation: ", iteration)
-                            continue
+                        results = model.inference(complet_inputs)
                     
                         # log images of BEVs to tensorboard
                         if i in eval_imgs_idxs:
@@ -257,7 +265,7 @@ def main():
                             input_bev = get_bev(voxels)
                             input_bev = input_to_cmap2d(input_bev)
                             log_images[dataloader_name].append((input_bev[0]))
-                            # gt bev
+
                             bev_labels = collect(complet_inputs, "bev_labels")
                             bev_gt = labels_to_cmap2d(bev_labels)
                             log_images[dataloader_name].append((bev_gt[0]))
@@ -294,7 +302,6 @@ def main():
                                 seg_labels_gt = semantic_gt[semantic_gt!=255]
                                 semantic_labels = semantic_labels[semantic_gt!=255]
                                 seg_evaluators[level].addBatch(semantic_labels.astype(int), seg_labels_gt.astype(int))
-
                             else:
                                 min_coordinate = torch.IntTensor([0, 0, 0])
                                 shape = shapes[level]
@@ -311,6 +318,8 @@ def main():
                                 semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
                                 semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
                                 semantic_labels = semantic_labels[semantic_gt!=255]
+                                
+                                
                                 occupancy_prediction = results['occupancy_{}'.format(level)]
                                 occupancy_prediction, _, _ = occupancy_prediction.dense(shape, min_coordinate=min_coordinate)
                                 occupancy_prediction = np.uint16(occupancy_prediction.to("cpu").detach().cpu().numpy()).flatten()
@@ -323,6 +332,7 @@ def main():
                         torch.cuda.empty_cache()
                 
                     # log eval results
+
                     for level in levels:
                         print("Evaluating level: {}".format(level))
                         _, class_jaccard = seg_evaluators[level].getIoU()
@@ -352,10 +362,10 @@ def main():
 
                     # log bev images:
                     imgs = torch.Tensor(log_images[dataloader_name])
-                    num_rows = 3
+                    num_rows = 4 if config.MODEL.UNET2D else 3
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
-            
+
 if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")
@@ -368,3 +378,7 @@ if __name__ == '__main__':
     print("\n Training with configuration parameters: \n",config)
 
     main()
+
+            
+
+    

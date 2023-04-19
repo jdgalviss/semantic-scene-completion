@@ -18,4 +18,4 @@ curl -sL https://deb.nodesource.com/setup_18.x | bash
 # and install node 
 apt-get install nodejs
 
-tensorboard --logdir ./experiments --samples_per_plugin images=100
+tensorboard --logdir ./experiments --samples_per_plugin images=100 --port 6007

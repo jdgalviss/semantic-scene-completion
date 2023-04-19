@@ -4,21 +4,29 @@ import torch
 import torch.nn as nn
 from configs import config
 from torch.nn import functional as F
-from model import UNetSparse, GeometryHeadSparse, ClassificationHeadSparse
+from model import UNetHybrid, GeometryHeadSparse, ClassificationHeadSparse
 import MinkowskiEngine as Me
 import sys
 sys.path.append("..") 
 from structures import collect
 from utils import get_bev
-from .discriminator2D import Discriminator2D, GANLoss
+from .lovasz_loss import lovasz_softmax
 device = torch.device("cuda:0")
 
+class Lovasz_loss(nn.Module):
+    def __init__(self, ignore=None):
+        super(Lovasz_loss, self).__init__()
+        self.ignore = ignore
 
-class MyModel(nn.Module):
-    def __init__(self,num_output_channels=8,unet_features=4,resnet_blocks=1):
+    def forward(self, probas, labels):
+        return lovasz_softmax(probas, labels, ignore=self.ignore)
+    
+class SSCHead(nn.Module):
+    def __init__(self,num_output_channels=16,unet_features=16,resnet_blocks=1, suffix=""):
         super().__init__()
+        self.suffix = suffix
         self._is_train_mod = True
-        self.model = UNetSparse(num_output_channels, unet_features)
+        self.model = UNetHybrid(num_output_channels, unet_features)
         
         # Heads
         self.occupancy_256_head = GeometryHeadSparse(num_output_channels, 1, resnet_blocks)
@@ -30,44 +38,46 @@ class MyModel(nn.Module):
                                                         resnet_blocks)
         # self.semantic_head = self.semantic_head
 
-        # Discriminators
-        # 2D
-        if config.MODEL.GEN_64_WEIGHT > 0.0:
-            self.discriminator = Discriminator2D(nf_in=1, nf=8, patch_size=96, image_dims=(64, 64), patch=False, use_bias=True, disc_loss_type='vanilla').to(device)
-            self.optimizer_disc = torch.optim.Adam(self.discriminator.parameters(), lr=1*0.0001, weight_decay=0.0)
-            self.gan_loss = GANLoss(loss_type='vanilla')
-
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits
         self.criterion_semantics = F.cross_entropy  #nn.CrossEntropyLoss(reduction="none")
 
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            self.lovasz_loss = Lovasz_loss(ignore=255)
+
+        
 
 
-    def forward(self, targets, weights, features2D=None, is_train_mod=True):
+    def forward(self, targets, seg_features, weights, features2D=None, is_train_mod=True):
         self._is_train_mod = is_train_mod
         # Put coordinates in the right order
-        complet_coords = collect(targets, "complet_coords").squeeze()
+        complet_coords = collect(targets, "complet_coords{}".format(self.suffix)).squeeze()
         
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = collect(targets, "complet_features")
+        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(targets, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
-        complet_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.int().to(device),
-                            quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
+        complet_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
+                            coordinates=complet_coords.float().to(device),
+                            quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         # print("sparse_coords: ",complet_coords.shape)
-        # complet_invalid = collect(targets,"complet_invalid")
-        # complet_valid = torch.logical_not(complet_invalid)
-        # complet_valid = F.max_pool3d(complet_invalid.float(), kernel_size=2, stride=4).bool()
+
+        # complet_valid = collect(targets,"complet_valid")
+        # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+        # complet_valid = collect(targets, "frustum_mask")
+        # complet_valid = F.max_pool3d(complet_valid.float(), kernel_size=2, stride=4).bool()
+
+
         # complet_valid = torch.ones_like(complet_valid).bool()
         # complet_valid = (torch.rand((1,64,64,8), dtype=torch.float) < 0.9).to(device).bool()
         # complet_valid = torch.rand_like(complet_valid, dtype=torch.float) > 0.5
         # print("completion_valid values: ", torch.max(complet_valid))
         # print("completion_valid values: ", torch.min(complet_valid))
-        complet_valid = torch.ones(1,64,64,8).to(device).bool()
-        # return {}, {}
 
+        complet_valid = torch.ones(1,64,64,8).to(device).bool()
+        
+        # return {}, {}
         # print("complet_valid_64 values: ", torch.unique(complet_valid_64))
         # print("complet_valid_64: ",torch.sum(complet_valid_64))
         # print("complet_valid shape:", complet_valid.shape)
@@ -87,21 +97,27 @@ class MyModel(nn.Module):
 
         unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
+        features = unet_output.features
+        # for f in features:
+        #     print("features type: ", type(f))
+        #     print(f)
+        #     print("features shape: ", f.shape)
+
 
         losses = {}
         results = {}
         
         # level-64
         if predictions[2] is None:
-            return {}, {}
+            return {}, {}, {}
         losses_64, results_64 = self.forward_64(predictions[2], targets, complet_valid, weights)
         
         losses.update(losses_64)
         results.update(results_64)
 
         # level-128
-        if predictions[1] is None:
-            return losses, results
+        if predictions[1][0] is None:
+            return losses, results, features
         losses_128, results_128 = self.forward_128(predictions[1], targets, weights)
         
         losses.update(losses_128)
@@ -109,7 +125,7 @@ class MyModel(nn.Module):
 
         #leve-256
         if predictions[0] is None:
-            return losses, results
+            return losses, results, features
         
         # Occupancy
         losses_256, results_256, features_256 = self.forward_256(predictions[0], targets, weights)
@@ -122,8 +138,9 @@ class MyModel(nn.Module):
             losses.update(losses_output)
             results.update(results_output)
 
-
-        return losses, results
+        # if self.suffix == "_multi":
+        #     features = features.copy()
+        return losses, results, features
 
     def forward_output(self, predictions: List[Me.SparseTensor], targets, weights) -> Tuple[Dict, Dict]:
         hierarchy_losses = {}
@@ -156,13 +173,16 @@ class MyModel(nn.Module):
 
 
         loss = self.criterion_semantics(prediction.F, ground_truth.squeeze(), weight=weights, reduction="none", ignore_index=255)
-
         # Get sparse weighting values from dense tensor
 
         if len(loss) > 0:
             loss_mean = loss.mean()
         else:
             loss_mean = 0
+        
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction.F, dim=1), ground_truth.squeeze().long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
 
         # semantic_softmax = Me.MinkowskiSoftmax(dim=1)(prediction)
         # semantic_labels = Me.SparseTensor(torch.argmax(semantic_softmax.F, 1).unsqueeze(1),
@@ -319,6 +339,10 @@ class MyModel(nn.Module):
         else:
             loss_mean = 0
 
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction.F, dim=1), ground_truth.squeeze().long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
+
         prediction = Me.MinkowskiSoftmax(dim=1)(prediction)
         prediction = Me.SparseTensor(torch.argmax(prediction.F, 1).unsqueeze(1),
                                           coordinate_map_key=prediction.coordinate_map_key,
@@ -380,60 +404,28 @@ class MyModel(nn.Module):
             loss_mean = loss.mean()
         else:
             loss_mean = 0
+        
+        if config.COMPLETION.LOVASZ_LOSS_LAMBDA > 0.0:
+            loss_main_lovasz = self.lovasz_loss(F.softmax(prediction, dim=1), ground_truth.long())
+            loss_mean += loss_main_lovasz*config.COMPLETION.LOVASZ_LOSS_LAMBDA
         prediction_classes = torch.argmax(prediction, dim=1)
         prediction_classes = torch.masked_fill(prediction_classes, mask == False, 0)
 
-        # 2D losses
-        # Get BEV from predicted volume (level 64 is already dense)
-        # shape = torch.Size([1, 1, 64, 64, 8])
-        # min_coordinate = torch.IntTensor([0, 0, 0]).to(device)
-        # dense, _, _ = encoded.dense(shape, min_coordinate=min_coordinate)
-        if config.MODEL.GEN_64_WEIGHT > 0.0:
+        return {"semantic_64": loss_mean}, {"semantic_64": prediction_classes}
 
-            if not self._is_train_mod:
-                self.discriminator.eval()
-            else:
-                self.discriminator.train()
-            self.optimizer_disc.zero_grad()
-            target2d = get_bev(ground_truth).float()
-            pred2d = get_bev(prediction_classes).float()
-            pred2d_probs = get_bev(prediction[0]).float().unsqueeze(0)
-            loss2d = self.criterion_semantics(pred2d_probs, target2d.long(), weight=weights, reduction="none", ignore_index=255)
-            loss2d = loss2d.mean()
-            pred2d[target2d==255.] = -1.
-            target2d[target2d==255.] = -1.
-            valid = None
-            pred2d = pred2d.unsqueeze(0)
-            target2d = target2d.unsqueeze(0)
-            real_loss, fake_loss, penalty = self.gan_loss.compute_discriminator_loss(self.discriminator, target2d, 
-                                                                            pred2d.contiguous().detach(), valid, None )
-            real_loss = torch.mean(real_loss)
-            fake_loss = torch.mean(fake_loss)
-            disc_loss = (real_loss + fake_loss)
-            if self._is_train_mod:
-                disc_loss.backward()
-                self.optimizer_disc.step()
-            
-            gen_loss = self.gan_loss.compute_generator_loss(self.discriminator, pred2d)
-        else:
-            loss2d = torch.tensor(0.0)
-            disc_loss = torch.tensor(0.0)
-            gen_loss = torch.tensor(0.0)
-        return {"semantic_64": loss_mean, "semantic2D_64": loss2d, "disc_64": disc_loss, "gen_64": gen_loss}, {"semantic_64": prediction_classes}
-
-    def inference(self, inputs, features2D=None,):
+    def inference(self, inputs, seg_features, features2D=None,):
         # Put coordinates in the right order
-        complet_coords = collect(inputs,"complet_coords").squeeze()
+        complet_coords = collect(inputs,"complet_coords{}".format(self.suffix)).squeeze()
         batch_size = len(torch.unique(complet_coords[:,0]))
 
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = collect(inputs, "complet_features")
+        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(inputs, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
-        sparse_coords = Me.SparseTensor(features=complet_features.transpose(0,1).type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.int().to(device),
-                            quantization_mode=Me.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE)
+        sparse_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
+                            coordinates=complet_coords.float().to(device),
+                            quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()
         unet_output = self.model(sparse_coords, batch_size=batch_size, valid_mask=complet_valid, features2D=features2D)

@@ -1,9 +1,10 @@
 GENERAL:
   MANUAL_SEED: 123
-  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/198/model128-71.pth"
+  CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/252/modelFULL-19.pth"
   # OVERFIT: True
   # NUM_SAMPLES_OVERFIT: 
-  
+# SEGMENTATION:
+#   CHECKPOINT: "/usr/src/app/semantic-scene-completion/experiments/008/modelFULL-9.pth"
 # MODEL:
 #   OCCUPANCY_128_WEIGHT: 0.2
 #   OCCUPANCY_256_WEIGHT: 4.0
