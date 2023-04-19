@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from configs import config
-from .sparse_seg_net import SparseSegNet
+# from .sparse_seg_net import SparseSegNet
 from .seg_2dpass_net import SparseSegNet2DPASS
 from .ssc_head import SSCHead
 from .model_utils import VoxelPooling

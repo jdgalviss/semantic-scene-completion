@@ -19,7 +19,7 @@ kitti_config = yaml.safe_load(open(config_file, 'r'))
 remapdict = kitti_config["learning_map"]
 
 SPLIT_SEQUENCES = {
-    "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
+    "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "08", "10"],
     "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
     "trainval": ["00"],
@@ -607,7 +607,6 @@ def Merge(tbl):
         complet_invalid_64.append(completion_collection['invalid_64'])
         complet_invalid_128.append(completion_collection['invalid_128'])
         frustum_mask.append(completion_collection['frustum_mask'])
-        input2d.append(aliment_collection['input2d'])
         bev_labels.append(aliment_collection['bev_labels'])
         stats.append(completion_collection['flip_mode'])
         voxel_centers.append(torch.Tensor(aliment_collection['voxel_centers']))

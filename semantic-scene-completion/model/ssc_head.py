@@ -10,7 +10,6 @@ import sys
 sys.path.append("..") 
 from structures import collect
 from utils import get_bev
-from .discriminator2D import Discriminator2D, GANLoss
 from .lovasz_loss import lovasz_softmax
 device = torch.device("cuda:0")
 
@@ -38,13 +37,6 @@ class SSCHead(nn.Module):
                                                         config.SEGMENTATION.NUM_CLASSES,
                                                         resnet_blocks)
         # self.semantic_head = self.semantic_head
-
-        # Discriminators
-        # 2D
-        if config.MODEL.GEN_64_WEIGHT > 0.0:
-            self.discriminator = Discriminator2D(nf_in=1, nf=8, patch_size=96, image_dims=(64, 64), patch=False, use_bias=True, disc_loss_type='vanilla').to(device)
-            self.optimizer_disc = torch.optim.Adam(self.discriminator.parameters(), lr=1*0.0001, weight_decay=0.0)
-            self.gan_loss = GANLoss(loss_type='vanilla')
 
         # Criterions
         self.criterion_occupancy = F.binary_cross_entropy_with_logits

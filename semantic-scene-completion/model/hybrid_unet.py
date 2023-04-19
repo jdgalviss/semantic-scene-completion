@@ -12,7 +12,6 @@ import logging
 import sys
 from pathlib import Path
 from math import log
-from .unet_parts import DoubleConv
 from .model_utils import get_sparse_values
 
 logger = logging.getLogger("trainer")

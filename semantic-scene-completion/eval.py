@@ -158,12 +158,6 @@ def main():
                         "Recall =\t" + str(np.round(recall * 100, 2)) + '\n' +
                         "IoU Cmpltn =\t" + str(np.round(acc_cmpltn * 100, 2)) + '\n')   
 
-
-            # log bev images:
-                
-            
-            
-
 if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")
