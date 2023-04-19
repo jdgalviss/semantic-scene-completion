@@ -1,5 +1,0 @@
-GENERAL:
-  MANUAL_SEED: 123
-  CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/60/modelFULL-79.pth"
-  OVERFIT: True
-  NUM_SAMPLES_OVERFIT: 1

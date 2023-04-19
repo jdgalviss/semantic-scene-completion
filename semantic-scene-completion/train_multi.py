@@ -4,17 +4,14 @@ import argparse
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import nvidia_smi
-import time
 from tqdm import tqdm
 from torch.nn import functional as F
 import torchvision
-from distillation_loss import DSKDLoss
 
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
-from utils import create_new_experiment_folder, save_config
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, create_new_experiment_folder, save_config
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 
@@ -42,7 +39,6 @@ def main():
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
-        distillation_criteria = DSKDLoss()
         # Optimizer
         teacher_optimizer = torch.optim.Adam(model_teacher.parameters(), config.SOLVER.BASE_LR,
                                             betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),

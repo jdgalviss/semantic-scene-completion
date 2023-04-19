@@ -89,13 +89,12 @@ _C.MODEL.USE_COORDS = True
 _C.MODEL.COMPLETION_INTERACTION = True
 _C.MODEL.DISTILLATION = False
 _C.MODEL.DISTILLATION_SAMPLES = 3
-_C.MODEL.MULTI_ONLY = False
 
 # -----------------------------------------------------------------------------
 # SOLVER CONFIGS
 # -----------------------------------------------------------------------------
 _C.SOLVER = Node() 
-_C.SOLVER.BASE_LR = 0.0001 # 0.01
+_C.SOLVER.BASE_LR = 0.0002 # 0.01
 _C.SOLVER.BETA_1 = 0.9 
 _C.SOLVER.BETA_2 = 0.999   
 _C.SOLVER.WEIGHT_DECAY = 0.0

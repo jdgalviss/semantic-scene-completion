@@ -1,5 +1,5 @@
 import torch
-from semantic_kitti_dataset import SemanticKITTIDataset, Merge
+from semantic_kitti_dataset import SemanticKITTIDataset, Merge, MergeTest
 import numpy as np
 import time
 
@@ -45,3 +45,17 @@ def get_dataloaders(config):
         # worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
     return train_dataloader, val_dataloader, trainval_dataloader
+
+def get_test_dataloader(config):
+    test_dataset = SemanticKITTIDataset("test",do_overfit=False, augment=False)
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=1,
+        collate_fn=MergeTest,
+        num_workers=config.TRAIN.NUM_WORKERS,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=True,
+        worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
+    )
+    return test_dataloader

@@ -5,10 +5,12 @@ import yaml
 import time
 import argparse
 import sys
-from utils import get_remap_lut, _read_label_SemKITTI, _read_invalid_SemKITTI, pack
-from configs import config
 from tqdm import tqdm
 from multiprocessing import Pool
+sys.path.append("../")
+from utils import get_remap_lut, _read_label_SemKITTI, _read_invalid_SemKITTI, pack
+from configs import config
+
 
 # def parse_args():
 #   parser = argparse.ArgumentParser(description='LMSCNet labels lower scales creation')
@@ -109,7 +111,7 @@ def main():
     downscaling = {'128': 2, '64': 4}
     seq = sequence
 
-    with Pool(8) as pool:
+    with Pool(4) as pool:
       async_results = [pool.apply_async(process_frame, args=(i, label_paths, invalid_paths, out_dir, downscaling, grid_dimensions, remap_lut, seq)) for i in range(len(label_paths))]
       results = [r.get() for r in async_results]
     print(time.strftime('%x %X') + ' -- => All files saved for Sequence {}'.format(os.path.basename(sequence)))

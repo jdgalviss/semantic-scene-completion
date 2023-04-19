@@ -7,7 +7,7 @@ import nvidia_smi
 from tqdm import tqdm
 from torch.nn import functional as F
 import torchvision
-from distillation_loss import DSKDLoss
+from model import DSKDLoss
 
 from model import MyModel
 from structures import collect
