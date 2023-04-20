@@ -22,7 +22,7 @@ Follow these steps to set up the environment:
 2. Install [nvidia-docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 3. Download the Semantic-KITTI dataset from [http://www.semantic-kitti.org/](http://www.semantic-kitti.org/) and extract it to the `semantic-scene-completion/data` folder.
 4. Download the semantic segmentation pretrained model from [this Google Drive folder](https://drive.google.com/drive/folders/1VpY2MCp5i654pXjizFMw0mrmuxC_XboW) and place it into the `semantic-scene-completion/data` folder.
-5. (Optional) Download our pretrained models and save them to the `semantic-scene-completion/data` folder.
+5. (Optional) Download our pretrained models from [this Godle Drive Folder](https://drive.google.com/drive/folders/14s675nQXmDg6q4fWgSG5sBfywH7ATm22?usp=sharing) and save them to the `semantic-scene-completion/data` folder.
 6. Build the Docker container using the following command:
 
 ```bash
@@ -38,7 +38,7 @@ python3 tools/labels_downscale.py
 
 ## Training
 
-First, run the Docker container using our script (modify the --shm-size parameter depending on your systems' specs):
+First, run the Docker container using our script (modify the --shm-size parameter depending on your systems' specs and **change the directory `/home/galvis/data/ssc_dataset/dataset/` for the path where your dataset is stored**):
 
 ```bash
 source run_docker.sh

@@ -55,19 +55,9 @@ RUN pip3 install ipywidgets==7.6.0
 RUN pip3 install k3d
 RUN /bin/bash -c "jupyter nbextension install --py --user k3d; jupyter nbextension enable --py --user k3d"
 
-# spconv (for Voxel data generation) - TODO: Remove?
+# spconv (for Voxel data generation)
 RUN pip3 install spconv-cu113
-# RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
-#     apt-get -y install libboost-all-dev \
-#     libssl-dev \
-#     && apt-get -y clean all \
-#     && rm -rf /var/lib/apt/lists/*
-# RUN /bin/bash -c "cd /tmp; wget https://github.com/Kitware/CMake/releases/download/v3.20.0/cmake-3.20.0.tar.gz; tar -zxvf cmake-3.20.0.tar.gz; cd cmake-3.20.0; ./bootstrap; make -j4; make install"
-# WORKDIR /usr/src/app
-# RUN /bin/bash -c "git clone https://github.com/llijiang/PointGroup.git --recursive"
 # 2DPASS extra dependencies
 RUN pip3 install pytorch_lightning==1.8 torch-scatter easydict
-# torchscatter
-# easydict
 WORKDIR /usr/src/app/semantic-scene-completion
 
