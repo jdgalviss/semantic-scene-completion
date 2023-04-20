@@ -1,6 +1,7 @@
 # Large-scale Outdoor Semantic Scene Completion with multi-scal sparse generative networks
 
 In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and dense to sparse knowledge distillation for single-frame semantic scene completion. Our method employs a state-of-the-art semantic segmentation model to predict point cloud features and semantic probabilities from a LiDAR point cloud, which are subsequently fed into a sparse multi-scale generative network to predict geometry and semantics jointly. In addition, we train a multi-frame replica of our model, which takes multiple sequential point clouds as input and apply Knowledge Distillation (KD) to transfer the dense knowledge to the single-frame model.
+![approach](https://user-images.githubusercontent.com/18732666/233229323-638df47c-966c-41ca-89d2-f1e17364994b.png)
 
 ## Table of Contents
 - [Installation](#installation)
