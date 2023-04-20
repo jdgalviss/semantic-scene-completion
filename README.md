@@ -1,6 +1,6 @@
 # Large-scale Outdoor Semantic Scene Completion with multi-scal sparse generative networks
 
-In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and dense to sparse knowledge distillation for single-frame semantic scene completion. Our method employs a state-of-the-art semantic segmentation model to predict point cloud features and semantic probabilities from a LiDAR point cloud, which are subsequently fed into a sparse multi-scale generative network to predict geometry and semantics jointly. In addition, we train a multi-frame replica of our model, which takes multiple sequential point clouds as input and apply Knowledge Distillation (KD) to transfer the dense knowledge to the single-frame model.
+In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and knowledge distillation for single-frame semantic scene completion.
 ![approach](https://user-images.githubusercontent.com/18732666/233229323-638df47c-966c-41ca-89d2-f1e17364994b.png)
 
 ## Table of Contents
@@ -74,3 +74,18 @@ To generate the submission files to for the Semantic-KITTI benchmark, use the fo
 python3 test.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
 ```
 
+## Acknowledgement
+Many thanks to these open-source projects:
+- [MinkowskiEngine](https://github.com/NVIDIA/MinkowskiEngine)
+- [2DPASS](https://github.com/yanx27/2DPASS)
+- [sgnn](https://github.com/angeladai/sgnn)
+- [semantic-kitti-api](https://github.com/PRBonn/semantic-kitti-api)
+
+<!-- ./validate_submission.py --task completion /usr/src/app/semantic-scene-completion/output/test/sequences.zip /usr/src/app/data -->
+
+<!-- Semantic Scene Completion on the SemanticKITTI dataset
+
+Run jupyter lab inside Docker
+jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
+jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --no-browser
+Evaluate Semantic-kitti ./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/valid --split valid ./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/gt --split valid -->
