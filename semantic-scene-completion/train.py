@@ -53,20 +53,27 @@ def main():
     # Load checkpoint
     if config.GENERAL.CHECKPOINT_PATH is not None:
         model.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH))
-        if config.MODEL.DISTILLATION:
-            model_teacher.load_state_dict(torch.load(config.GENERAL.TEACHER_CHECKPOINT_PATH))
-            model_teacher.eval()
-
         training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0]) + 1
         print("TRAINING_EPOCH: ", training_epoch)
     else:
         training_epoch = 0
-        if config.MODEL.SEG_HEAD and config.SEGMENTATION.CHECKPOINT is not None:
+        if config.MODEL.SEG_HEAD and config.SEGMENTATION.CHECKPOINT is not None and config.SEGMENTATION.SEG_MODEL == "vanilla":
             model_seg_checkpoint = MyModel().cuda()
             model_seg_checkpoint.load_state_dict(torch.load(config.SEGMENTATION.CHECKPOINT))
             model.seg_model.load_state_dict(model_seg_checkpoint.seg_model.state_dict())
             print("Loaded pretrained segmentation model from: ", config.SEGMENTATION.CHECKPOINT)
             del model_seg_checkpoint
+
+    if config.MODEL.DISTILLATION:
+        try:
+            model_teacher.load_state_dict(torch.load(config.GENERAL.TEACHER_CHECKPOINT_PATH))
+            model_teacher.eval()
+            print("LOADED DISTILLATION TEACHER MODEL")
+        except:
+            print("Teacher model checkpoint not found, can't apply distillation")
+            return 0
+        
+    
     
     iteration = training_epoch * len(train_dataloader)
     seg_label_to_cat = LABEL_TO_NAMES #TODO: replace

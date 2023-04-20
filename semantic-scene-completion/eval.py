@@ -2,19 +2,13 @@ import torch
 from configs import config, LABEL_TO_NAMES
 import argparse
 import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-import nvidia_smi
-import time
 from tqdm import tqdm
 from torch.nn import functional as F
-import torchvision
-from distillation_loss import DSKDLoss
 
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level
-from utils import create_new_experiment_folder, save_config
+from utils import re_seed, get_dataloaders
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 
@@ -162,12 +156,13 @@ if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")
     parser.add_argument("--config-file", type=str, default="configs/ssc.yaml", required=False)
-    parser.add_argument("--output-path", type=str, default="experiments", required=False)
+    parser.add_argument("--checkpoint", type=str, default="/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth", required=False)
 
     args = parser.parse_args()
-    config.GENERAL.OUT_DIR = args.output_path
     config.merge_from_file(args.config_file)
-    print("\n Training with configuration parameters: \n",config)
+    config.GENERAL.CHECKPOINT_PATH = args.checkpoint
+
+    print("\n Evaluating with configuration parameters: \n",config)
 
     main()
 

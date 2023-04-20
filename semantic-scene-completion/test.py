@@ -1,9 +1,7 @@
 import torch
 from configs import config
 import argparse
-from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 import numpy as np
-import time
 from tqdm import tqdm
 from model import MyModel
 from utils import re_seed, get_test_dataloader
@@ -17,13 +15,12 @@ shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128,
 def main():
     re_seed(0)
     # Test set dataloader
-    test_dataloader = get_test_dataloader()
+    test_dataloader = get_test_dataloader(config)
 
     # Model
     model = MyModel().to(device)
-    ckpt_path = "/usr/src/app/semantic-scene-completion/experiments/290/modelFULL-17.pth" #config.GENERAL.CHECKPOINT_PATH
     # Load checkpoint
-    # ckpt_path = config.GENERAL.CHECKPOINT_PATH
+    ckpt_path = config.GENERAL.CHECKPOINT_PATH
     try:
         model.load_state_dict(torch.load(ckpt_path))
         training_epoch = int(ckpt_path.split('-')[-1].split('.')[0]) + 1
@@ -100,11 +97,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Reinforcement Learning - based path planning")
     parser.add_argument("--config-file", type=str, default="configs/ssc_eval.yaml", required=False)
     parser.add_argument("--output-path", type=str, default="experiments", required=False)
-    parser.add_argument("--model-path", type=str, default="/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth", required=False)
+    parser.add_argument("--checkpoint", type=str, default="/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth", required=False)
 
     args = parser.parse_args()
-    config.GENERAL.OUT_DIR = args.output_path
-    config.GENERAL.CHECKPOINT_PATH = args.model_path
     config.merge_from_file(args.config_file)
+    config.GENERAL.OUT_DIR = args.output_path
+    config.GENERAL.CHECKPOINT_PATH = args.checkpoint
     print("\n Testing with configuration parameters: \n",config)
     main()

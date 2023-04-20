@@ -7,23 +7,9 @@ import argparse
 import sys
 from tqdm import tqdm
 from multiprocessing import Pool
-sys.path.append("../")
+sys.path.append("/usr/src/app/semantic-scene-completion")
 from utils import get_remap_lut, _read_label_SemKITTI, _read_invalid_SemKITTI, pack
 from configs import config
-
-
-# def parse_args():
-#   parser = argparse.ArgumentParser(description='LMSCNet labels lower scales creation')
-#   parser.add_argument(
-#     '--dset_root',
-#     dest='dataset_root',
-#     default='',
-#     metavar='DATASET',
-#     help='path to dataset root folder',
-#     type=str,
-#   )
-#   args = parser.parse_args()
-#   return args
 
 
 def majority_pooling(grid, k_size=2):
