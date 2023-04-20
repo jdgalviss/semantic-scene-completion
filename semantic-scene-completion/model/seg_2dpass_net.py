@@ -45,7 +45,7 @@ def parse_config():
     parser.add_argument('--pretrain2d', action='store_true', default=False, help='use pre-trained 2d network')
     parser.add_argument('--num_vote', type=int, default=1, help='number of voting in the test')
     parser.add_argument('--submit_to_server', action='store_true', default=False, help='submit on benchmark')
-    parser.add_argument('--checkpoint', type=str, default="thirdparty/2DPASS/best_model.ckpt", help='load checkpoint')
+    parser.add_argument('--checkpoint', type=str, default="/usr/src/app/semantic-scene-completion/data/best_model.ckpt", help='load checkpoint')
     # debug
     parser.add_argument('--debug', default=False, action='store_true')
 
@@ -79,7 +79,7 @@ class SparseSegNet2DPASS(nn.Module):
 
         if configs.checkpoint is not None:
             print('loading pre-trained segmentation model...')
-            my_model = my_model.load_from_checkpoint(configs.checkpoint, config=configs, strict=(not configs.pretrain2d))
+            my_model = my_model.load_from_checkpoint(config.SEGMENTATION.CHECKPOINT, config=configs, strict=(not configs.pretrain2d))
         sd=my_model.model_3d.state_dict()
         self.model.load_state_dict(sd)
         del my_model

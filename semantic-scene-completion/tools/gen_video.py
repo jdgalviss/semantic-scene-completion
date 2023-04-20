@@ -1,15 +1,16 @@
 import numpy as np
-from configs import config
 import yaml
 import os, glob
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 import torch
 import time
 import cv2
+import sys
+sys.path.append("/usr/src/app/semantic-scene-completion")
 from structures import collect
-
+from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
+from configs import config
 
 # Color map for lidar intensities
 def totuple(a):

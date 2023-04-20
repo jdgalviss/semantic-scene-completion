@@ -1,0 +1,14 @@
+GENERAL:
+  MANUAL_SEED: 123
+  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth"
+  OVERFIT: True
+  NUM_SAMPLES_OVERFIT: 20
+
+TRAIN:
+  AUGMENT: True
+
+MODEL:
+  DISTILLATION: False
+
+TRAIN:
+  NUM_WORKERS: 12
