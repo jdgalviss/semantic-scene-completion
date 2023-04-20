@@ -77,6 +77,15 @@ To generate the submission files to for the Semantic-KITTI benchmark, use the fo
 ```bash
 python3 test.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
 ```
+## Results
+These are our method's results compared to the semantic-kitti ssc leaderboard:
+
+| Method   | mIoU  | completion |
+|----------|-------|------------|
+| S3CNet   | **29.5** | 45.6       |
+| JS3C-Net | 23.8  | 56.6       |
+| LMSCNet  | 17.0  | 55.3       |
+| **Ours**     | 25.5  |**59.8**      |
 
 ## Acknowledgement
 Many thanks to these open-source projects:
