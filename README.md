@@ -1,52 +1,75 @@
 # Large-scale Outdoor Semantic Scene Completion with multi-scal sparse generative networks
 
-Lidar-based Semantic Scene Completion 
+In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and dense to sparse knowledge distillation for single-frame semantic scene completion. Our method employs a state-of-the-art semantic segmentation model to predict point cloud features and semantic probabilities from a LiDAR point cloud, which are subsequently fed into a sparse multi-scale generative network to predict geometry and semantics jointly. In addition, we train a multi-frame replica of our model, which takes multiple sequential point clouds as input and apply Knowledge Distillation (KD) to transfer the dense knowledge to the single-frame model.
+
+## Table of Contents
+- [Installation](#installation)
+- [Prepare Dataset](#prepare-dataset)
+- [Training](#training)
+- [Evaluation](#evaluation)
+- [Test](#test)
 
 ## Installation
-1. Install Docker
-2. Install nvidia-docker
-3. Download semantic-kitti dataset: http://www.semantic-kitti.org/
-4. Download semantic segmentatiol pretrained model from: https://drive.google.com/drive/folders/1VpY2MCp5i654pXjizFMw0mrmuxC_XboW into the 'semantic-scene-completion/data' folder
-5. (Optional) Download our pretrained models to the 'semantic-scene-completion/data' folder
-6. Build docker container: docker build -t ssc .
 
-## Prepare Dataset
-Run the labels_downscale.py script to create labels for the 1/2 and 1/4 scales using majority vote pooling:
-python3 tools/labels_downscale.py
-## Training
+Follow these steps to set up the environment:
 
-Run the docker container using our script
-source run_docker.sh
+1. Install [Docker](https://docs.docker.com/engine/install/ubuntu/)
+2. Install [nvidia-docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+3. Download the Semantic-KITTI dataset from [http://www.semantic-kitti.org/](http://www.semantic-kitti.org/) and extract it to the `semantic-scene-completion/data` folder.
+4. Download the semantic segmentation pretrained model from [this Google Drive folder](https://drive.google.com/drive/folders/1VpY2MCp5i654pXjizFMw0mrmuxC_XboW) and place it into the `semantic-scene-completion/data` folder.
+5. (Optional) Download our pretrained models and save them to the `semantic-scene-completion/data` folder.
+6. Build the Docker container using the following command:
 
-Train our semantic scene completion model:
-python3 train.py --config-file configs/ssc.yaml
-
-Train the multi-frame semantic scene completion model:
-python3 train_multi.py --config-file configs/ssc_multi.yaml
-
-Check Tenosrboard: 
-tensorboard --logdir .semantic-scene-completion/experiments 
-## Evaluation
-Inside the docker container:
-python3 eval
-
-
-
-
-<!-- 1. Run jupyter lab inside Docker
 ```bash
-jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
-jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --no-browser
+docker build -t ssc .
+```
+## Prepare Dataset
+
+Run the `labels_downscale.py` script to create labels for the 1/2 and 1/4 scales using majority vote pooling:
+
+```bash
+python3 tools/labels_downscale.py
 ```
 
-2. Evaluate Semantic-kitti
-./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/valid --split valid
-./evaluate_completion.py --dataset /usr/src/app/data --predictions /usr/src/app/semantic-scene-completion/output/gt --split valid
+## Training
 
-4. Debug
-python3 -m debugpy --listen 131.159.98.103:5678 --wait-for-client -m train
-curl -sL https://deb.nodesource.com/setup_18.x | bash
-# and install node 
-apt-get install nodejs -->
+First, run the Docker container using our script (modify the --shm-size parameter depending on your systems' specs):
 
-<!-- tensorboard --logdir ./experiments --samples_per_plugin images=100 --port 6007 -->
+```bash
+source run_docker.sh
+```
+
+To train the semantic scene completion model, run the following command inside the Docker container:
+
+```bash
+python3 train.py --config-file configs/ssc.yaml
+```
+
+To train the multi-frame semantic scene completion model, use the following command:
+
+```bash
+python3 train_multi.py --config-file configs/ssc_multi.yaml
+```
+
+To monitor the training progress, use TensorBoard with the following command:
+
+```bash
+tensorboard --logdir ./semantic-scene-completion/experiments
+```
+
+## Evaluation
+
+To evaluate the trained model, run the following command inside the Docker container:
+
+```bash
+python3 eval.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
+```
+
+## Test
+
+To generate the submission files to for the Semantic-KITTI benchmark, use the following command:
+
+```bash
+python3 test.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
+```
+
