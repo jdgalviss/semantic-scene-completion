@@ -1,4 +1,4 @@
-# Large-scale Outdoor Semantic Scene Completion with multi-scal sparse generative networks
+# Large-scale Outdoor Semantic Scene Completion with multi-scale sparse generative networks
 
 <p align="center">
   <img src="https://user-images.githubusercontent.com/18732666/233234599-8c81f0f8-cba6-4464-b0ca-f3a37dbcc90c.gif" alt="seg08gif2" width="70%">
