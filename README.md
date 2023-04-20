@@ -1,5 +1,7 @@
 # Large-scale Outdoor Semantic Scene Completion with multi-scal sparse generative networks
 
+![seg08gif2](https://user-images.githubusercontent.com/18732666/233234599-8c81f0f8-cba6-4464-b0ca-f3a37dbcc90c.gif)
+
 In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and knowledge distillation for single-frame semantic scene completion.
 ![approach](https://user-images.githubusercontent.com/18732666/233229323-638df47c-966c-41ca-89d2-f1e17364994b.png)
 
