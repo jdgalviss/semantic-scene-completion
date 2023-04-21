@@ -19,8 +19,8 @@ kitti_config = yaml.safe_load(open(config_file, 'r'))
 remapdict = kitti_config["learning_map"]
 
 SPLIT_SEQUENCES = {
-    "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "08", "10"],
-    "valid": ["00"],
+    "train": ["00", "01", "02", "03", "04", "05", "06", "07", "09", "10"],
+    "valid": ["08"],
     "test": ["11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"],
     "trainval": ["00"],
 }
@@ -299,7 +299,7 @@ class SemanticKITTIDataset(Dataset):
                 split, idx = self.filenames[t]
                 # split = int(split)
                 idx = int(idx)
-                extra_idxs  = [(idx+i) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i)<(self.samples_per_split[split]-1)]
+                extra_idxs  = [(idx+i*5) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*5)<(self.samples_per_split[split]-1)]
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
                 remissions_multi = remissions.copy()

@@ -52,7 +52,7 @@ def main():
     # Load checkpoint
     if config.GENERAL.CHECKPOINT_PATH is not None:
         if config.MODEL.DISTILLATION:
-            model_teacher.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH.replace("model","teacher")))
+            model_teacher.load_state_dict(torch.load(config.GENERAL.CHECKPOINT_PATH))
         training_epoch = int(config.GENERAL.CHECKPOINT_PATH.split('-')[-1].split('.')[0]) + 1
         print("TRAINING_EPOCH: ", training_epoch)
     else:
