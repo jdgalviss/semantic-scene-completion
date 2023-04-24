@@ -11,7 +11,7 @@ import torchvision
 from model import MyModel
 from structures import collect
 from semantic_kitti_dataset import get_labelweights
-from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, create_new_experiment_folder, save_config
+from utils import re_seed, labels_to_cmap2d, get_bev, input_to_cmap2d, get_dataloaders, update_level, create_new_experiment_folder, save_config, CosineAnnealingWarmupRestarts
 from evaluation import iouEval
 torch.autograd.set_detect_anomaly(True)
 
@@ -43,8 +43,9 @@ def main():
         teacher_optimizer = torch.optim.Adam(model_teacher.parameters(), config.SOLVER.BASE_LR,
                                             betas=(config.SOLVER.BETA_1, config.SOLVER.BETA_2),
                                             weight_decay=config.SOLVER.WEIGHT_DECAY)
-        lr_scheduler_teacher = torch.optim.lr_scheduler.ExponentialLR(teacher_optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    
+        # lr_scheduler_teacher = torch.optim.lr_scheduler.ExponentialLR(teacher_optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
+        lr_scheduler_teacher = CosineAnnealingWarmupRestarts(teacher_optimizer, first_cycle_steps=len(train_dataloader)*3, cycle_mult=0.7, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.7)
+
         
 
     # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(train_dataloader)*300, eta_min=config.SOLVER.LR_CLIP)
@@ -86,11 +87,15 @@ def main():
     for epoch in range(training_epoch, (config.TRAIN.MAX_EPOCHS)):
         update_level(config, epoch) # Updates config.GENERAL.LEVEL
         pbar = tqdm(train_dataloader)
-        train_writer.add_scalar('train/lr', lr_scheduler_teacher.get_last_lr()[0], epoch)
+        # train_writer.add_scalar('train/lr', lr_scheduler_teacher.get_last_lr()[0], epoch)
         train_writer.add_scalar('epoch', epoch, iteration)
         
         # Training
         for i, batch in enumerate(pbar):
+            # if cosine_annealing:
+            train_writer.add_scalar('train/lr', lr_scheduler_teacher.get_lr()[0], iteration)
+            # Learning rate scheduler step cosine annealing
+            lr_scheduler_teacher.step()
             _, complet_inputs, _, _ = batch
 
             if config.MODEL.DISTILLATION:
@@ -154,8 +159,8 @@ def main():
 
 
         # Learning rate scheduler step
-        if config.MODEL.DISTILLATION:
-            lr_scheduler_teacher.step()
+        # if config.MODEL.DISTILLATION:
+            # lr_scheduler_teacher.step()
         
         # Log memory
         info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
