@@ -7,7 +7,7 @@ class DSKDLoss(torch.nn.Module):
         super(DSKDLoss, self).__init__()
         self.alpha = 1
 
-    def pairwise_relational(self,tensor):
+    def pairwise_relational(self, tensor):
         """
         Compute the normalized pairwise relational knowledge of a tensor of features.
 
@@ -20,14 +20,14 @@ class DSKDLoss(torch.nn.Module):
         # Ensure the input tensor has the correct shape
         assert len(tensor.shape) == 2, "Input tensor must have shape [N, C]"
 
-        # Compute the dot product between each pair of features
-        relational_matrix = torch.matmul(tensor, tensor.T)
-
         # Compute the norms of each feature
         norms = torch.norm(tensor, dim=1).unsqueeze(-1)
 
-        # Normalize the relational_matrix by dividing each value by the product of the norms of the features it relates
-        normalized_relational_matrix = relational_matrix / (torch.matmul(norms, norms.T) + 1e-10)
+        # Normalize the input tensor by dividing each feature by its norm
+        normalized_tensor = tensor / (norms + 1e-10)
+        
+        # Compute the dot product between each pair of normalized features
+        normalized_relational_matrix = torch.matmul(normalized_tensor, normalized_tensor.T)
 
         return normalized_relational_matrix
 

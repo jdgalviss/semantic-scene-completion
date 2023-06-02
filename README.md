@@ -67,7 +67,7 @@ tensorboard --logdir ./semantic-scene-completion/experiments
 To evaluate the trained model, run the following command inside the Docker container:
 
 ```bash
-python3 eval.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
+python3 eval.py --config-file configs/ssc.yaml --checkpoint data/modelFULL-19.pth
 ```
 
 ## Test
@@ -75,7 +75,7 @@ python3 eval.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFU
 To generate the submission files to for the Semantic-KITTI benchmark, use the following command:
 
 ```bash
-python3 test.py --config-file configs/ssc_overfit.yaml --checkpoint data/modelFULL-19.pth
+python3 test.py --config-file configs/ssc.yaml --checkpoint data/modelFULL-19.pth
 ```
 ## Results
 These are our method's results compared to the semantic-kitti ssc leaderboard:

@@ -1,11 +1,14 @@
 GENERAL:
   MANUAL_SEED: 123
-  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/248/modelFULL-11.pth"
+  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/247/modelFULL-10.pth"
   OVERFIT: False
 
 MODEL:
   DISTILLATION: True
-  DISTILLATION_SAMPLES: 3
+  DISTILLATION_SAMPLES: 2
 
 TRAIN:
   NUM_WORKERS: 14
+
+SOLVER:
+  BASE_LR: 0.00009

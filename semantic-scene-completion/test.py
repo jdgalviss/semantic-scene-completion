@@ -18,7 +18,7 @@ def main():
     test_dataloader = get_test_dataloader(config)
 
     # Model
-    model = MyModel().to(device)
+    model = MyModel(is_teacher=False).to(device)
     # Load checkpoint
     ckpt_path = config.GENERAL.CHECKPOINT_PATH
     try:

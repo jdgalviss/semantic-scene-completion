@@ -139,9 +139,7 @@ class UNetBlock(nn.Module):
         # coords*=coors_factor
         # sparse_encoded = Me.SparseTensor(encoded_values, coordinates=coords.contiguous().float())
         processed = self.submodule(BlockContent(encoded, None, features2D))
-        features = [encoded]
-        if processed.features is not None:
-            features.extend(processed.features)
+        features = []
         decoded = self.decoder(processed.data)
         output = torch.cat([content, decoded], dim=1)
         if self.verbose:
@@ -265,7 +263,7 @@ class UNetBlockOuterSparse(UNetBlock):
         # forward to next submodule
         processed: BlockContent = self.submodule(BlockContent(encoded, x.encoding, x.features2D), batch_size)
         # Features (used for distillation)
-        features = processed.features
+        # features = processed.features
         
         if processed is None:
             return None
@@ -277,6 +275,8 @@ class UNetBlockOuterSparse(UNetBlock):
         else:
             proxy_output = None
         should_concat = proxy_output is not None
+        features = []
+
         if should_concat:
             proxy_mask = (Me.MinkowskiSigmoid()(proxy_output).F > 0.5).squeeze(1)
             if proxy_mask.sum() == 0:
@@ -291,6 +291,7 @@ class UNetBlockOuterSparse(UNetBlock):
                 # proxy semantic prediction
                 proxy_semantic = self.proxy_semantic_128_head(cat)
                 cat = sparse_cat_union(cat, proxy_semantic)
+                # features = [cat]
             if  (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL") and proxy_output is not None:
                 output = self.decoder(cat) if not self.verbose else self.forward_verbose(cat, self.decoder)
                 output = Me.SparseTensor(output.F, output.C, coordinate_manager=cm)  # Fix
@@ -299,7 +300,7 @@ class UNetBlockOuterSparse(UNetBlock):
         else:
             output = None
             proxy_semantic = None
-
+        features.extend(processed.features)
         if self.verbose:
             self.verbose = False
         
@@ -315,7 +316,7 @@ class UNetBlockInner(UNetBlock):
     def forward(self, x: BlockContent) -> BlockContent:
         content = x.data
         encoded = self.encoder(content) if not self.verbose else self.forward_verbose(content, self.encoder)
-        features = [encoded]
+        features = []
         decoded = self.decoder(encoded) if not self.verbose else self.forward_verbose(encoded, self.decoder)
         output = torch.cat([content, decoded], dim=1)
         if self.verbose:
@@ -404,8 +405,8 @@ class UNetBlockHybridSparse(UNetBlockOuter):
         # densify encoded feature map for residual connection
         dense, _, _ = encoded.dense(shape, min_coordinate=min_coordinate)
         processed: BlockContent = self.submodule(BlockContent(dense, None, x.features2D))
-        features = [encoded]
-        features.extend(processed.features)
+        # features = [encoded]
+        # features.extend(processed.features)
         # decode
         # occupancy proxy -> mask
         proxy_flat = processed.data.view(batch_size, processed.data.shape[1], -1).permute(0, 2, 1)
@@ -418,10 +419,13 @@ class UNetBlockHybridSparse(UNetBlockOuter):
         proxy_output = torch.masked_fill(proxy_output, frustum_mask.squeeze() == False, 0.0).unsqueeze(1)
 
         # semantic proxy
+        # features = [processed.data]
         semantic_prediction = self.proxy_semantic_64_head(processed.data)
         semantic_prediction = torch.masked_fill(semantic_prediction, frustum_mask.squeeze() == False, 0.0)
         semantic_prediction[:, 0] = torch.masked_fill(semantic_prediction[:, 0], frustum_mask.squeeze() == False, 1.0)
         proxy_output = [proxy_output, semantic_prediction]
+        features = []
+
 
         if config.GENERAL.LEVEL != "64":
             coordinates, _, _ = Sparsify()(dense_to_sparse_mask, features=processed.data)
@@ -443,6 +447,9 @@ class UNetBlockHybridSparse(UNetBlockOuter):
             # print("concat: ", concat.shape)
             output = self.decoder(concat) if not self.verbose else self.forward_verbose(concat, self.decoder)
             # print("output: ", output.shape)
+            # features = [semantic_prediction]
+            features = [concat]
+            # features = [processed.data]
         else:
             output = None
         if self.verbose:
