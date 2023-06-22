@@ -97,7 +97,6 @@ Many thanks to these open-source projects:
 <!-- ./validate_submission.py --task completion /usr/src/app/semantic-scene-completion/output/test/sequences.zip /usr/src/app/data -->
 
 <!-- Semantic Scene Completion on the SemanticKITTI dataset
-
 Run jupyter lab inside Docker
 jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser
 jupyter notebook --ip=0.0.0.0 --port=8888 --allow-root --no-browser
