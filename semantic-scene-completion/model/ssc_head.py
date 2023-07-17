@@ -98,10 +98,16 @@ class SSCHead(nn.Module):
         unet_output = self.model(complet_coords, batch_size=config.TRAIN.BATCH_SIZE, valid_mask=complet_valid, features2D=features2D)
         predictions = unet_output.data
         features = unet_output.features
+        # features = [features[1]]
+
+        
         # for f in features:
         #     print("features type: ", type(f))
-        #     print(f)
+        #     # print(f)
         #     print("features shape: ", f.shape)
+
+        # if self.suffix != "":
+        #     return {}, {}, features
 
 
         losses = {}
@@ -117,6 +123,7 @@ class SSCHead(nn.Module):
 
         # level-128
         if predictions[1][0] is None:
+            
             return losses, results, features
         losses_128, results_128 = self.forward_128(predictions[1], targets, weights)
         
@@ -125,6 +132,7 @@ class SSCHead(nn.Module):
 
         #leve-256
         if predictions[0] is None:
+            
             return losses, results, features
         
         # Occupancy
@@ -140,6 +148,8 @@ class SSCHead(nn.Module):
 
         # if self.suffix == "_multi":
         #     features = features.copy()
+        # Only work with output features
+        # features.extend([features_256])
         return losses, results, features
 
     def forward_output(self, predictions: List[Me.SparseTensor], targets, weights) -> Tuple[Dict, Dict]:

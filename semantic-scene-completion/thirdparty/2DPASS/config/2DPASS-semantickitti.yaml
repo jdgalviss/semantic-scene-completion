@@ -30,7 +30,7 @@ dataset_params:
   pc_dataset_type: "SemanticKITTI"
   collate_type: "collate_fn_default"
   ignore_label: 0
-  label_mapping: "/usr/src/app/semantic-scene-completion/thirdparty/2DPASS/config/label_mapping/semantic-kitti.yaml"
+  label_mapping: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/thirdparty/2DPASS/config/label_mapping/semantic-kitti.yaml"
 
   # 2D augmentation
   bottom_crop:

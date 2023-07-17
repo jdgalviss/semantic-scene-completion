@@ -44,7 +44,7 @@ def main():
                                         weight_decay=config.SOLVER.WEIGHT_DECAY)
     
     # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*5, cycle_mult=0.7, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.7)
+    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*20, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/5.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.5)
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
@@ -218,7 +218,7 @@ def main():
         train_writer.add_scalar('memory/free', info.free, epoch)
 
         # Save checkpoint
-        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0: # and (config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL"):
+        if epoch % config.TRAIN.CHECKPOINT_PERIOD == 0 and (config.GENERAL.LEVEL == "FULL"):
             torch.save(model.state_dict(), experiment_dir + "/model{}-{}.pth".format(config.GENERAL.LEVEL, epoch))
 
         # Evaluation
@@ -314,6 +314,7 @@ def main():
                                     semantic_labels_rgb = F.interpolate(semantic_labels_rgb.unsqueeze(0).float(), size=(256,256), mode="nearest")
                                     semantic_labels_rgb = labels_to_cmap2d(semantic_labels_rgb[0].long())
                                     log_images[dataloader_name].append((semantic_labels_rgb[0]))
+
                                     
                                 semantic_labels = np.uint16(semantic_labels.to("cpu").detach().cpu().numpy()).flatten()
                                 semantic_gt = np.uint16(semantic_gt.detach().cpu().numpy()).flatten()
@@ -362,6 +363,10 @@ def main():
                     num_rows = 3
                     grid_imgs = torchvision.utils.make_grid(imgs, nrow=num_rows)
                     writers[dataloader_name].add_image('eval/bev', grid_imgs, epoch)
+                    del imgs, grid_imgs
+                del log_images
+                torch.cuda.empty_cache()
+
             
 if __name__ == '__main__':
     # Arguments

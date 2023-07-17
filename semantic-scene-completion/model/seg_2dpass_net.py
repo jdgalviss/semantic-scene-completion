@@ -5,7 +5,8 @@ import yaml
 import torch.nn as nn
 from torch.nn import functional as F
 import sys
-sys.path.append("/usr/src/app/semantic-scene-completion/thirdparty/2DPASS")
+
+sys.path.append("/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/thirdparty/2DPASS")
 from network.spvcnn import get_model as SPVCNN
 import os
 import importlib
@@ -45,7 +46,7 @@ def parse_config():
     parser.add_argument('--pretrain2d', action='store_true', default=False, help='use pre-trained 2d network')
     parser.add_argument('--num_vote', type=int, default=1, help='number of voting in the test')
     parser.add_argument('--submit_to_server', action='store_true', default=False, help='submit on benchmark')
-    parser.add_argument('--checkpoint', type=str, default="/usr/src/app/semantic-scene-completion/data/best_model.ckpt", help='load checkpoint')
+    parser.add_argument('--checkpoint', type=str, default="/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/best_model.ckpt", help='load checkpoint')
     # debug
     parser.add_argument('--debug', default=False, action='store_true')
 

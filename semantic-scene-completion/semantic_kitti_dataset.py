@@ -299,7 +299,7 @@ class SemanticKITTIDataset(Dataset):
                 split, idx = self.filenames[t]
                 # split = int(split)
                 idx = int(idx)
-                extra_idxs  = [(idx+i*5) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*5)<(self.samples_per_split[split]-1)]
+                extra_idxs  = [(idx+i*10) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*10)<(self.samples_per_split[split]-1)]
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
                 remissions_multi = remissions.copy()
@@ -343,6 +343,48 @@ class SemanticKITTIDataset(Dataset):
             xyz = scan.points
             remissions = scan.remissions
             label = None
+            label_multi = None
+            if config.MODEL.DISTILLATION: # If we are doing distillation we need the multisample pointcloud
+                split, idx = self.filenames[t]
+                # split = int(split)
+                idx = int(idx)
+                extra_idxs  = [(idx+i*20) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*20)<(self.samples_per_split[split]-1)]
+                xyz_multi = xyz.copy()
+                xyz_multi_raw = xyz.copy()
+                remissions_multi = remissions.copy()
+                id_multi = np.zeros_like(remissions)
+                T0 = self.all_poses[split][idx]
+                count = 1
+                for i in extra_idxs:
+                    # Read additional pointclouds
+                    aux_point_name = seg_point_name.replace("{:06d}.bin".format(idx), "{:06d}.bin".format(i))
+                    # aux_label_name = seg_label_name.replace("{:06d}.".format(idx), "{:06d}.".format(i))
+                    scan.open_scan(aux_point_name)
+                    # scan.open_label(aux_label_name) # TODO: remove to improve memory usage
+                    remissions_aux = scan.remissions
+                    xyz_aux = scan.points
+                    # label_aux = scan.sem_label
+                    # label_aux = self.seg_remap_lut[label_aux]
+                    xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
+                    # Transform to the same coordinate system as the first frame using homogeneous transformations
+                    Ti = self.all_poses[split][i]
+                    # T = np.linalg.inv(np.matmul(T0, np.linalg.inv(Ti)))
+                    T = np.matmul(np.linalg.inv(T0),Ti)
+                    xyz_aux_h = np.concatenate([xyz_aux, np.ones((xyz_aux.shape[0], 1))], axis=1)
+                    xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
+                    xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
+                    remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
+                    # label_multi = np.concatenate((label_multi, label_aux), axis=0)
+                    id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_aux)), axis=0)
+                    count += 1
+                if config.MODEL.USE_COORDS:
+                    feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
+                else:
+                    feature_multi = remissions_multi.reshape(-1, 1)
+                # Add noise augmentation to input data
+                if self.augment:
+                    feature_multi += np.random.randn(*feature_multi.shape)*config.TRAIN.NOISE_LEVEL
+            
         
         # Create pointcloud feature tensor [N, C]. C=4 for coords+remissions, C=1 for remissions only
         if config.MODEL.USE_COORDS:
@@ -707,6 +749,15 @@ def MergeTest(tbl):
     seg_labels = []
     filenames = []
     offset = 0
+    if config.MODEL.DISTILLATION:
+        voxel_centers_multi = []
+        complet_coords_multi = []
+        complet_features_multi = []
+        seg_coords_multi = []
+        seg_features_multi = []
+        seg_labels_multi = []
+        complet_invoxel_features_multi = []
+        offset_multi = 0
     for idx, example in enumerate(tbl):
         filename, completion_collection, aliment_collection, segmentation_collection = example
         '''File Name'''
@@ -728,6 +779,22 @@ def MergeTest(tbl):
         offset += seg_coord.shape[0]
         complet_features.append(aliment_collection['features'])
 
+        if config.MODEL.DISTILLATION:
+            seg_coord_multi = segmentation_collection['coords_multi']
+            seg_coords_multi.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord_multi], 1))
+            seg_features_multi.append(segmentation_collection['feature_multi'])
+            # seg_labels_multi.append(segmentation_collection['label_multi'])
+
+            complet_coord_multi = aliment_collection['coords_multi']
+            complet_coord_multi = torch.cat([torch.Tensor(complet_coord_multi.shape[0], 1).fill_(idx), complet_coord_multi.float()], 1)
+            complet_coords_multi.append(complet_coord_multi)
+            complet_features_multi.append(aliment_collection['features_multi'])
+            voxel_centers_multi.append(torch.Tensor(aliment_collection['voxel_centers_multi']))
+            complet_invoxel_feature_multi = aliment_collection['voxels_multi']
+            complet_invoxel_feature_multi[:, :, -2] += offset_multi  # voxel-to-point mapping in the last column
+            complet_invoxel_features_multi.append(torch.Tensor(complet_invoxel_feature_multi))
+            offset_multi += seg_coord_multi.shape[0]
+
     complet_inputs = FieldList((320, 240), mode="xyxy") # TODO: parameters are irrelevant
     complet_inputs.add_field("seg_coords", torch.cat(seg_coords, 0))
     complet_inputs.add_field("seg_features", torch.cat(seg_features, 0))
@@ -735,5 +802,19 @@ def MergeTest(tbl):
     complet_inputs.add_field("complet_features", torch.cat(complet_features, 0).unsqueeze(0))
     complet_inputs.add_field("voxel_centers", torch.cat(voxel_centers, 0))
     complet_inputs.add_field("complet_invoxel_features", torch.cat(complet_invoxel_features, 0))
+
+    if config.MODEL.DISTILLATION:
+        complet_coords_multi = torch.cat(complet_coords_multi, 0)
+        complet_features_multi = torch.cat(complet_features_multi, 0)
+        voxel_centers_multi = torch.cat(voxel_centers_multi, 0)
+        complet_invoxel_features_multi = torch.cat(complet_invoxel_features_multi, 0)
+
+        complet_inputs.add_field("complet_coords_multi", complet_coords_multi.unsqueeze(0))
+        complet_inputs.add_field("complet_features_multi", complet_features_multi.unsqueeze(0))
+        complet_inputs.add_field("voxel_centers_multi", voxel_centers_multi.unsqueeze(0))
+        complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
+        complet_inputs.add_field("seg_features_multi", torch.cat(seg_features_multi, 0))
+        # complet_inputs.add_field("seg_labels_multi", torch.cat(seg_labels_multi, 0))
+        complet_inputs.add_field("complet_invoxel_features_multi", complet_invoxel_features_multi)
     # filenames = None
     return filenames, complet_inputs, None, filenames

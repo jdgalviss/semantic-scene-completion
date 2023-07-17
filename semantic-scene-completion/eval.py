@@ -156,7 +156,7 @@ if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser(description="Semantic Scene Completion")
     parser.add_argument("--config-file", type=str, default="configs/ssc.yaml", required=False)
-    parser.add_argument("--checkpoint", type=str, default="/usr/src/app/semantic-scene-completion/data/modelFULL-19.pth", required=False)
+    parser.add_argument("--checkpoint", type=str, default="/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/modelFULL-19.pth", required=False)
 
     args = parser.parse_args()
     config.merge_from_file(args.config_file)

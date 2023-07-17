@@ -7,26 +7,26 @@ _C = Node()
 # -----------------------------------------------------------------------------
 _C.GENERAL = Node()
 _C.GENERAL.MANUAL_SEED = 0
-_C.GENERAL.DATASET_DIR = "/usr/src/app/data/"
+_C.GENERAL.DATASET_DIR = "/storage/user/gaj/ssc/dataset/"
 _C.GENERAL.OVERFIT = False
 _C.GENERAL.NUM_SAMPLES_OVERFIT = 20
 _C.GENERAL.LEVEL = "64"
 _C.GENERAL.OUT_DIR = "experiments"
-_C.GENERAL.CHECKPOINT_PATH = None #"/usr/src/app/semantic-scene-completion/experiments/56/modelFULL-35.pth"
-_C.GENERAL.TEACHER_CHECKPOINT_PATH = "/usr/src/app/semantic-scene-completion/data/teacherFULL-24.pth"
+_C.GENERAL.CHECKPOINT_PATH = None #"/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/56/modelFULL-35.pth"
+_C.GENERAL.TEACHER_CHECKPOINT_PATH = "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/teacherFULL-24.pth"
 
 # -----------------------------------------------------------------------------
 # TRAIN CONFIGS
 # -----------------------------------------------------------------------------
 _C.TRAIN = Node()
-_C.TRAIN.MAX_EPOCHS = 1000
+_C.TRAIN.MAX_EPOCHS = 500
 _C.TRAIN.SEG_NUM_PER_CLASS = [55437630, 320797, 541736, 2578735, 3274484, 552662, 184064, 78858, 240942562, 17294618, 170599734, 6369672, 230413074, 101130274, 476491114, 9833174, 129609852, 4506626, 1168181]
 _C.TRAIN.COMPLT_NUM_PER_CLASS = [7632350044, 15783539,  125136, 118809, 646799, 821951, 262978, 283696, 204750, 61688703, 4502961, 44883650, 2269923, 56840218, 15719652, 158442623, 2061623, 36970522, 1151988, 334146]
 _C.TRAIN.BATCH_SIZE = 1
 _C.TRAIN.NUM_WORKERS = 8
 _C.TRAIN.CHECKPOINT_PERIOD = 1
 _C.TRAIN.EVAL_PERIOD = 1
-_C.TRAIN.STEPS = [2,4,5]
+_C.TRAIN.STEPS = [5,10,12]
 
 # DATA AUGMENTATION
 _C.TRAIN.AUGMENT = True
@@ -61,7 +61,7 @@ _C.SEGMENTATION.SCALE = 10   # VOXEL_SIZE = 1 / SCALE, SCALE 10 (1CM)
 _C.SEGMENTATION.FULL_SCALE = [0, 2048]
 _C.SEGMENTATION.USE_COORDS = False
 _C.SEGMENTATION.NUM_CLASSES = 20
-_C.SEGMENTATION.CHECKPOINT = "/usr/src/app/semantic-scene-completion/data/best_model.ckpt"
+_C.SEGMENTATION.CHECKPOINT = "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/best_model.ckpt"
 _C.SEGMENTATION.TRAIN = False
 _C.SEGMENTATION.SOFTMAX = False
 _C.SEGMENTATION.SEG_MODEL = "2DPASS" # "2DPASS" or "vanila"
