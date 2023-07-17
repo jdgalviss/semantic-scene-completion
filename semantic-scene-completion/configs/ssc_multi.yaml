@@ -1,6 +1,6 @@
 GENERAL:
   MANUAL_SEED: 123
-  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/247/modelFULL-10.pth"
+  # CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/247/modelFULL-10.pth"
   OVERFIT: False
 
 MODEL:

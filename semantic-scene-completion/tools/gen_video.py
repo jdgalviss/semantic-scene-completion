@@ -7,7 +7,7 @@ import torch
 import time
 import cv2
 import sys
-sys.path.append("/usr/src/app/semantic-scene-completion")
+sys.path.append("/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion")
 from structures import collect
 from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 from configs import config

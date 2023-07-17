@@ -1,14 +1,14 @@
 GENERAL:
   MANUAL_SEED: 123
-  # CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/305/modelFULL-10.pth"
-  TEACHER_CHECKPOINT_PATH: "/usr/src/app/semantic-scene-completion/experiments/303/teacherFULL-14.pth"
+  # CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/305/modelFULL-10.pth"
+  TEACHER_CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/303/teacherFULL-14.pth"
 
 MODEL:
-  DISTILLATION: True
+  DISTILLATION: False
   DISTILLATION_SAMPLES: 2
 
 TRAIN:
-  NUM_WORKERS: 12
+  NUM_WORKERS: 8
 
 SOLVER:
-  BASE_LR: 0.0001
+  BASE_LR: 0.0002
