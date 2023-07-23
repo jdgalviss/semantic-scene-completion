@@ -14,12 +14,12 @@ _C.GENERAL.LEVEL = "64"
 _C.GENERAL.OUT_DIR = "experiments"
 _C.GENERAL.CHECKPOINT_PATH = None #"/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/56/modelFULL-35.pth"
 _C.GENERAL.TEACHER_CHECKPOINT_PATH = "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/teacherFULL-24.pth"
-
+_C.GENERAL.EXPERIMENT_NAME = "test"
 # -----------------------------------------------------------------------------
 # TRAIN CONFIGS
 # -----------------------------------------------------------------------------
 _C.TRAIN = Node()
-_C.TRAIN.MAX_EPOCHS = 500
+_C.TRAIN.MAX_EPOCHS = 35
 _C.TRAIN.SEG_NUM_PER_CLASS = [55437630, 320797, 541736, 2578735, 3274484, 552662, 184064, 78858, 240942562, 17294618, 170599734, 6369672, 230413074, 101130274, 476491114, 9833174, 129609852, 4506626, 1168181]
 _C.TRAIN.COMPLT_NUM_PER_CLASS = [7632350044, 15783539,  125136, 118809, 646799, 821951, 262978, 283696, 204750, 61688703, 4502961, 44883650, 2269923, 56840218, 15719652, 158442623, 2061623, 36970522, 1151988, 334146]
 _C.TRAIN.BATCH_SIZE = 1

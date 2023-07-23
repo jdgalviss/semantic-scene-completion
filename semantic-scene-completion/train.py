@@ -85,7 +85,7 @@ def main():
     print("Total trainable params: ", pytorch_total_trainable_params)
 
     # Setup logging
-    experiment_dir = create_new_experiment_folder(config.GENERAL.OUT_DIR)
+    experiment_dir = create_new_experiment_folder(config.GENERAL.OUT_DIR, config.GENERAL.EXPERIMENT_NAME)
     save_config(config, experiment_dir)
     train_writer = SummaryWriter(log_dir=str(experiment_dir + "/train"))
     if config.GENERAL.OVERFIT:
@@ -133,17 +133,17 @@ def main():
             total_loss: torch.Tensor = 0.0
 
             # forward pass single-pc model
-            try:
-                _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
-            except Exception as e:
-                print(e, "Error in forward pass: ", iteration)
-                consecutive_fails += 1
-                if consecutive_fails > 100:
-                    print("Too many consecutive fails, exiting")
-                    return
-                del complet_inputs
-                torch.cuda.empty_cache()
-                continue
+            # try:
+            _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            # except Exception as e:
+            #     print(e, "Error in forward pass: ", iteration)
+            #     consecutive_fails += 1
+            #     if consecutive_fails > 100:
+            #         print("Too many consecutive fails, exiting")
+            #         return
+            #     del complet_inputs
+            #     torch.cuda.empty_cache()
+            #     continue
             consecutive_fails = 0
 
             # Compute weighted loss

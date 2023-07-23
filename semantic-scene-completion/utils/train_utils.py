@@ -7,7 +7,7 @@ import os
 from yacs.config import CfgNode as Node
 from pathlib import Path
 
-def create_new_experiment_folder(folder_name: str) -> str:
+def create_new_experiment_folder(folder_name: str, experiment_name: str) -> str:
     """
     Create a new experiment file name. and create the folder.
     """
@@ -16,7 +16,7 @@ def create_new_experiment_folder(folder_name: str) -> str:
         max_file = max(files)
     else:
         max_file = "/000"
-    experiment_dir = folder_name + "/{:03d}".format(int(max_file.split('/')[-1].split('_')[0])+1)
+    experiment_dir = folder_name + "/{:03d}_{}".format(int(max_file.split('/')[-1].split('_')[0])+1, experiment_name)
     Path(experiment_dir).mkdir(parents=True, exist_ok=True)
     return experiment_dir
 

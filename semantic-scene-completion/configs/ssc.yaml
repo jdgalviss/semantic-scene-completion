@@ -2,13 +2,15 @@ GENERAL:
   MANUAL_SEED: 123
   # CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/305/modelFULL-10.pth"
   TEACHER_CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/303/teacherFULL-14.pth"
-
+  EXPERIMENT_NAME: "segpriors-bs2"
 MODEL:
   DISTILLATION: False
   DISTILLATION_SAMPLES: 2
+  SEG_HEAD: True
 
 TRAIN:
   NUM_WORKERS: 8
+  BATCH_SIZE: 2
 
 SOLVER:
   BASE_LR: 0.0002
