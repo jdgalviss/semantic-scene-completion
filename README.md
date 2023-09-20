@@ -85,7 +85,7 @@ These are our method's results compared to the semantic-kitti ssc leaderboard:
 | S3CNet   | **29.5** | 45.6       |
 | JS3C-Net | 23.8  | 56.6       |
 | LMSCNet  | 17.0  | 55.3       |
-| **Ours**     | 25.5  |**59.8**      |
+| **Ours**     | 27.1  |**60.6**      |
 
 ## Acknowledgement
 Many thanks to these open-source projects:
