@@ -1,11 +1,10 @@
 # LiDaR-based Outdoor Semantic Scene Completion with multi-scale sparse generative networks
 
-<p align="center">
-  <img src="https://user-images.githubusercontent.com/18732666/233234599-8c81f0f8-cba6-4464-b0ca-f3a37dbcc90c.gif" alt="seg08gif2" width="70%">
-</p>
+https://github.com/jdgalviss/semantic-scene-completion/assets/18732666/b15aba05-70bd-4426-bbd2-3f8da3fb2ba7
+
 
 In this work, we formulate a method that leverages a sparse generative neural network with point-cloud segmentation priors and knowledge distillation for single-frame semantic scene completion.
-![approach](https://user-images.githubusercontent.com/18732666/233229323-638df47c-966c-41ca-89d2-f1e17364994b.png)
+![approach](https://github.com/jdgalviss/semantic-scene-completion/assets/18732666/5f3be7cf-9ee0-4f66-b1a2-ce7244c79f7f)
 
 ## Table of Contents
 - [Installation](#installation)
