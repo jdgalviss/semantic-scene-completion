@@ -1,0 +1,26 @@
+GENERAL:
+  MANUAL_SEED: 123
+  CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/018_segpriors-larger/modelFULL-17.pth"
+  TEACHER_CHECKPOINT_PATH: "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/experiments/024_segpriors-segnet128/modelFULL-11.pth"
+  EXPERIMENT_NAME: "segpriors-segnet32-continue08-trainseg"
+  LEVEL: "FULL"
+  # OVERFIT: True
+MODEL:
+  DISTILLATION: False
+  DISTILLATION_SAMPLES: 2
+  SEG_HEAD: True
+  RECTIFY_LABELS: False
+  NUM_INPUT_FEATURES: 32
+  NUM_OUTPUT_CHANNELS: 32
+
+SEGMENTATION:
+  SEG_MODEL: "2DPASS"
+  TRAIN: True
+
+TRAIN:
+  NUM_WORKERS: 8
+  BATCH_SIZE: 1
+
+SOLVER:
+  BASE_LR: 0.000075
+

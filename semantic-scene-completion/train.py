@@ -44,7 +44,7 @@ def main():
                                         weight_decay=config.SOLVER.WEIGHT_DECAY)
     
     # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.SOLVER.LR_DECAY_RATE)
-    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*20, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/5.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.5)
+    lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=len(train_dataloader)*20, cycle_mult=0.5, max_lr=config.SOLVER.BASE_LR, min_lr=config.SOLVER.BASE_LR/10.0, warmup_steps=int(len(train_dataloader)/5), gamma=0.5)
 
     if config.MODEL.DISTILLATION:
         model_teacher = MyModel(is_teacher=True).to(device)
@@ -57,7 +57,7 @@ def main():
         print("TRAINING_EPOCH: ", training_epoch)
     else:
         training_epoch = 0
-        if config.MODEL.SEG_HEAD and config.SEGMENTATION.CHECKPOINT is not None and config.SEGMENTATION.SEG_MODEL == "vanilla":
+        if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS" and config.SEGMENTATION.CHECKPOINT is not None and config.SEGMENTATION.SEG_MODEL == "vanilla":
             model_seg_checkpoint = MyModel().cuda()
             model_seg_checkpoint.load_state_dict(torch.load(config.SEGMENTATION.CHECKPOINT))
             model.seg_model.load_state_dict(model_seg_checkpoint.seg_model.state_dict())
@@ -133,35 +133,35 @@ def main():
             total_loss: torch.Tensor = 0.0
 
             # forward pass single-pc model
-            # try:
-            _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
-            # except Exception as e:
-            #     print(e, "Error in forward pass: ", iteration)
-            #     consecutive_fails += 1
-            #     if consecutive_fails > 100:
-            #         print("Too many consecutive fails, exiting")
-            #         return
-            #     del complet_inputs
-            #     torch.cuda.empty_cache()
-            #     continue
+            try:
+                _, losses, features, sigma = model(complet_inputs, seg_labelweights, compl_labelweights)
+            except Exception as e:
+                print(e, "Error in forward pass: ", iteration)
+                consecutive_fails += 1
+                if consecutive_fails > 100:
+                    print("Too many consecutive fails, exiting")
+                    return
+                del complet_inputs
+                torch.cuda.empty_cache()
+                continue
             consecutive_fails = 0
 
             # Compute weighted loss
             if config.TRAIN.UNCERTAINTY_LOSS:
                 factor_compl = 1.0 / (sigma[1]**2)
-                total_loss = factor_compl[0] * losses["occupancy_64"] + 2 * torch.log(sigma[1][0]) + \
-                            factor_compl[1] * losses["semantic_64"] + 2 * torch.log(sigma[1][1]) 
-                if config.MODEL.SEG_HEAD:
-                    factor_seg = 1.0 / (sigma[0]**2)
-                    total_loss += factor_seg[0] * 0.1 * losses["pc_seg"] + 2 * torch.log(sigma[0][0])
-                    train_writer.add_scalar('factors/seg_pc', factor_seg.detach().cpu(), iteration)
+                total_loss = 0.05*factor_compl[0] * losses["occupancy_64"] + 2 * torch.log(sigma[1][0]) + \
+                            0.1*factor_compl[1] * losses["semantic_64"] + 2 * torch.log(sigma[1][1]) 
+                # if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS" and config.SEGMENTATION.TRAIN:
+                #     factor_seg = 1.0 / (sigma[0]**2)
+                #     total_loss += factor_seg[0] * 0.1 * losses["pc_seg"] + 2 * torch.log(sigma[0][0])
+                #     train_writer.add_scalar('factors/seg_pc', factor_seg.detach().cpu(), iteration)
                 if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl[2] * losses["occupancy_128"] + 2 * torch.log(sigma[1][2]) + \
-                                    factor_compl[3] * losses["semantic_128"] + 2 * torch.log(sigma[1][3])  
+                    total_loss += 0.05*factor_compl[2] * losses["occupancy_128"] + 2 * torch.log(sigma[1][2]) + \
+                                    0.1*factor_compl[3] * losses["semantic_128"] + 2 * torch.log(sigma[1][3])  
                 if config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl[4] * losses["occupancy_256"] + 2 * torch.log(sigma[1][4])
+                    total_loss += 0.1*factor_compl[4] * losses["occupancy_256"] + 2 * torch.log(sigma[1][4]) #+=
                 if config.GENERAL.LEVEL == "FULL":
-                    total_loss += factor_compl[5] * losses["semantic_256"] + 2 * torch.log(sigma[1][5])
+                    total_loss += factor_compl[5] * losses["semantic_256"] + 2 * torch.log(sigma[1][5]) #+=
                 train_writer.add_scalar('factors/complt_64', factor_compl[0].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/seg_64', factor_compl[1].detach().cpu(), iteration)
                 train_writer.add_scalar('factors/complt_128', factor_compl[2].detach().cpu(), iteration)
@@ -170,7 +170,7 @@ def main():
                 train_writer.add_scalar('factors/seg_256', factor_compl[5].detach().cpu(), iteration)
             else:
                 total_loss = losses["occupancy_64"] * config.MODEL.OCCUPANCY_64_WEIGHT + losses["semantic_64"]*config.MODEL.SEMANTIC_64_WEIGHT
-                if config.MODEL.SEG_HEAD:
+                if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS":
                     total_loss += losses["pc_seg"]*config.MODEL.PC_SEG_WEIGHT
                 if config.GENERAL.LEVEL == "128" or config.GENERAL.LEVEL == "256" or config.GENERAL.LEVEL == "FULL":
                     total_loss += losses["occupancy_128"] * config.MODEL.OCCUPANCY_128_WEIGHT + losses["semantic_128"]*config.MODEL.SEMANTIC_128_WEIGHT 
@@ -198,7 +198,7 @@ def main():
                         train_writer.add_scalar('train_128/'+k, v.detach().cpu(), iteration)
                     elif "64" in k:
                         train_writer.add_scalar('train_64/'+k, v.detach().cpu(), iteration)
-                if config.MODEL.SEG_HEAD:
+                if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS":
                     train_writer.add_scalar('train/seg_pc', losses["pc_seg"].detach().cpu(), iteration)  
                 if config.MODEL.DISTILLATION:
                     train_writer.add_scalar('train/distillation', distillation_loss.detach().cpu(), iteration)
@@ -242,7 +242,7 @@ def main():
                         levels = ["64","128"]
                     elif config.GENERAL.LEVEL == "FULL":
                         levels = ["64", "128","256"]
-                    if config.MODEL.SEG_HEAD:
+                    if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS":
                         levels.append("seg")
                     
                     # Evaluation loop
@@ -270,7 +270,7 @@ def main():
                             log_images[dataloader_name].append((bev_gt[0]))
                         
                         # iou for pointcloud segmentation
-                        if config.MODEL.SEG_HEAD:
+                        if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL=="2DPASS":
                             pc_seg_pred = results['pc_seg']
                             pc_seg_pred = F.softmax(pc_seg_pred, dim=1)
                             pc_seg_pred = torch.argmax(pc_seg_pred, dim=1).cpu().detach().numpy()

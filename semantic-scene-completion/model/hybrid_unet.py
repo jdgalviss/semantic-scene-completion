@@ -180,6 +180,8 @@ class UNetBlockOuterSparse(UNetBlock):
         if config.MODEL.SEG_HEAD:
             if config.SEGMENTATION.SEG_MODEL == "2DPASS":
                 self.num_input_features = 256
+            elif config.SEGMENTATION.SEG_MODEL == "scpnet":
+                self.num_input_features = 32
             else:
                 self.num_input_features = config.MODEL.NUM_INPUT_FEATURES
         else:
@@ -196,7 +198,7 @@ class UNetBlockOuterSparse(UNetBlock):
         self.num_semantic_features = config.SEGMENTATION.NUM_CLASSES 
 
         # Encoder for semantic logits
-        if config.MODEL.SEG_HEAD:
+        if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL == "2DPASS":
             num_encoders+=1
             # define segmentation feature encoder
             seg_downsample = nn.Sequential(
@@ -208,7 +210,6 @@ class UNetBlockOuterSparse(UNetBlock):
             )
         
         num_combined_encoder_features = num_encoders * num_inner_features
-        
         # Encoded to further process concatenated features
         encoder_downsample = nn.Sequential(
             Me.MinkowskiConvolution(num_combined_encoder_features, num_inner_features, kernel_size=4, stride=2, bias=True, dimension=3),
@@ -249,7 +250,7 @@ class UNetBlockOuterSparse(UNetBlock):
         encoded_input = self.encoder_feat(features_input) if not self.verbose else self.forward_verbose(features_input, self.encoder_feat)
 
         # process seg logits if present
-        if config.MODEL.SEG_HEAD:
+        if config.MODEL.SEG_HEAD and config.SEGMENTATION.SEG_MODEL == "2DPASS":
             start_features = end_features
             end_features += self.num_semantic_features
             seg_input = Me.SparseTensor(content.F[:, start_features:end_features], coordinate_manager=cm, coordinate_map_key=key)

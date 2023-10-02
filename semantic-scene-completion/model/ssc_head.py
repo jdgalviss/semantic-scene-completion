@@ -51,16 +51,34 @@ class SSCHead(nn.Module):
     def forward(self, targets, seg_features, weights, features2D=None, is_train_mod=True):
         self._is_train_mod = is_train_mod
         # Put coordinates in the right order
-        complet_coords = collect(targets, "complet_coords{}".format(self.suffix)).squeeze()
         
+        if config.MODEL.SEG_HEAD:
+            if config.SEGMENTATION.SEG_MODEL =="2DPASS":
+                complet_features = seg_features
+                complet_coords = collect(targets, "complet_coords{}".format(self.suffix)).squeeze()
+            elif config.SEGMENTATION.SEG_MODEL == "scpnet":
+                complet_coords = seg_features[0]
+                complet_features = seg_features[1]
+            else:
+                raise NotImplementedError("Unknown priors model: {}".format(config.SEGMENTATION.SEG_MODEL))
+        else:
+            complet_features = collect(targets, "complet_features{}".format(self.suffix)).transpose(0,1)
+            complet_coords = collect(targets, "complet_coords{}".format(self.suffix)).squeeze()
+        
+        
+
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(targets, "complet_features{}".format(self.suffix)).transpose(0,1)
+        # complet_features = seg_features if config.MODEL.SEG_HEAD else collect(targets, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
         complet_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.float().to(device),
+                            coordinates=complet_coords.type(torch.FloatTensor).to(device),
                             quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
+
+        # complet_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
+        #                     coordinates=complet_coords.float().to(device),
+        #                     quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
         # print("sparse_coords: ",complet_coords.shape)
 
         # complet_valid = collect(targets,"complet_valid")
@@ -424,18 +442,32 @@ class SSCHead(nn.Module):
         return {"semantic_64": loss_mean}, {"semantic_64": prediction_classes}
 
     def inference(self, inputs, seg_features, features2D=None,):
+
         # Put coordinates in the right order
-        complet_coords = collect(inputs,"complet_coords{}".format(self.suffix)).squeeze()
+        
+        if config.MODEL.SEG_HEAD:
+            if config.SEGMENTATION.SEG_MODEL =="2DPASS":
+                complet_features = seg_features
+                complet_coords = collect(inputs, "complet_coords{}".format(self.suffix)).squeeze()
+            elif config.SEGMENTATION.SEG_MODEL == "scpnet":
+                complet_coords = seg_features[0]
+                complet_features = seg_features[1]
+            else:
+                raise NotImplementedError("Unknown priors model: {}".format(config.SEGMENTATION.SEG_MODEL))
+        else:
+            complet_features = collect(inputs, "complet_features{}".format(self.suffix)).transpose(0,1)
+            complet_coords = collect(inputs, "complet_coords{}".format(self.suffix)).squeeze()
+
+        sparse_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
+                            coordinates=complet_coords.type(torch.FloatTensor).to(device),
+                            quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
+
         batch_size = len(torch.unique(complet_coords[:,0]))
 
         # complet_coords = complet_coords[:, [0, 3, 2, 1]]
         # complet_coords[:, 3] += 1  # TODO SemanticKITTI will generate [256,256,31]
-        complet_features = seg_features if config.MODEL.SEG_HEAD else collect(inputs, "complet_features{}".format(self.suffix)).transpose(0,1)
         # complet_coords[:, 0] += 1 
         # Transform to sparse tensor
-        sparse_coords = Me.SparseTensor(features=complet_features.type(torch.FloatTensor).to(device),
-                            coordinates=complet_coords.float().to(device),
-                            quantization_mode=Me.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE)
 
         complet_valid = torch.ones(1,64,64,8).to(device).bool()
         unet_output = self.model(sparse_coords, batch_size=batch_size, valid_mask=complet_valid, features2D=features2D)

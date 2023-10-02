@@ -6,12 +6,12 @@ sudo docker run -it --rm  \
     --net=host  \
     --privileged \
     --runtime=nvidia \
-    -v `pwd`/semantic-scene-completion:/usr/src/app/semantic-scene-completion \
-    -v /home/galvis/data/ssc_dataset/dataset/:/usr/src/app/data \
+    -v `pwd`/semantic-scene-completion:/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion \
+    -v /home/galvis/data/ssc_dataset/dataset/:/storage/user/gaj/ssc/dataset \
     --shm-size 32G \
     ssc "$@"
 
-    # -v /home/galvis/data/semantickitti/dataset/dataset/:/usr/src/app/data \
+    # -v /home/galvis/data/semantickitti/dataset/dataset/:/storage/user/gaj/ssc/dataset \
 
     # -e DISPLAY=$DISPLAY \
     # -v $XSOCK:$XSOCK \

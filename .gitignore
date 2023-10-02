@@ -2,6 +2,7 @@ JS3C-Net
 *.ipynb
 *.pyc
 experiments
+semantic-scene-completion/experiments
 kaolin
 *bkup.py
 semantic-scene-completion/output

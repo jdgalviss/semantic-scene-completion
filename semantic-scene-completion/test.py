@@ -4,10 +4,11 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from model import MyModel
-from utils import re_seed, get_test_dataloader
+from utils import re_seed, get_test_dataloader, get_valid_dataloader
 import os
 import yaml
 from pathlib import Path
+from structures import collect
 
 device = torch.device("cuda:0")
 shapes = {"256": torch.Size([1, 1, 256, 256, 32]), "128": torch.Size([1, 1, 128, 128, 16]), "64": torch.Size([1, 1, 64, 64, 8])}
@@ -65,12 +66,16 @@ def main():
             occupancy_prediction = np.uint16(occupancy_prediction[0,0].detach().cpu().numpy())
             semantic_prediction, _, _ = semantic_prediction.dense(shape, min_coordinate=min_coordinate)
             semantic_prediction = np.uint16(semantic_prediction.to("cpu")[0,0].detach().cpu().numpy())
+            
+            ## Uncomment to save gt
             # level = "256"
-            # print("semantic_prediction.shape: ", semantic_prediction.shape)
+            # # print("semantic_prediction.shape: ", semantic_prediction.shape)
             # gt_labels = collect(complet_inputs, "complet_labels_{}".format(level)).squeeze()
             # gt_labels = np.uint16(gt_labels.detach().cpu().numpy())
+            # semantic_prediction = gt_labels
             # semantic_prediction[gt_labels==255] = 0
-            # print("gt.shape: ", semantic_prediction.shape)
+            # # print("gt.shape: ", semantic_prediction.shape)
+            # End uncomment to save gt
             # remap
             maxkey = max(remapdict_inv.keys())
             remap_lut = np.zeros((maxkey + 100), dtype=np.int32)
