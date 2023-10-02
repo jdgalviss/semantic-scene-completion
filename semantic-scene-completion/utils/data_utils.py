@@ -59,3 +59,17 @@ def get_test_dataloader(config):
         worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
     )
     return test_dataloader
+
+def get_valid_dataloader(config):
+    valid_dataset = SemanticKITTIDataset("valid",do_overfit=False, augment=False)
+    valid_dataloader = torch.utils.data.DataLoader(
+        valid_dataset,
+        batch_size=1,
+        collate_fn=Merge,
+        num_workers=config.TRAIN.NUM_WORKERS,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=True,
+        worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
+    )
+    return valid_dataloader

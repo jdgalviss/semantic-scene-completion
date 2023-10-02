@@ -26,7 +26,7 @@ _C.TRAIN.BATCH_SIZE = 1
 _C.TRAIN.NUM_WORKERS = 8
 _C.TRAIN.CHECKPOINT_PERIOD = 1
 _C.TRAIN.EVAL_PERIOD = 1
-_C.TRAIN.STEPS = [5,10,12]
+_C.TRAIN.STEPS = [0,0,0] #[5,10,12]
 
 # DATA AUGMENTATION
 _C.TRAIN.AUGMENT = True
@@ -64,7 +64,7 @@ _C.SEGMENTATION.NUM_CLASSES = 20
 _C.SEGMENTATION.CHECKPOINT = "/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/data/best_model.ckpt"
 _C.SEGMENTATION.TRAIN = False
 _C.SEGMENTATION.SOFTMAX = False
-_C.SEGMENTATION.SEG_MODEL = "2DPASS" # "2DPASS" or "vanila"
+_C.SEGMENTATION.SEG_MODEL = "2DPASS" # "2DPASS", "scpnet" "vanila"
 
 # -----------------------------------------------------------------------------
 # MODEL CONFIGS

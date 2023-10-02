@@ -11,7 +11,10 @@ sys.path.append("/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-comp
 from structures import collect
 from semantic_kitti_dataset import SemanticKITTIDataset, MergeTest, Merge
 from configs import config
+from pathlib import Path
 
+shapes = {"256": [256, 256, 32, 3], "128": [128, 128, 16, 2], "64": [64, 64, 8, 1]}
+level = "256"
 # Color map for lidar intensities
 def totuple(a):
     try:
@@ -31,26 +34,29 @@ for rgb in (np.uint8((viridis.colors)[:,:-1]*255.0)):
     new_int = hex_int + 0x200
     cmap.append(new_int)
 
-classes_colors = [[245, 150, 100],
-[245, 230, 100],
-[150, 60, 30],
-[180, 30, 80],
-[255, 0, 0],
-[30, 30, 255],
-[200, 40, 255],
-[90, 30, 150],
-[255, 0, 255],
-[255, 150, 255],
-[75, 0, 75],
-[75, 0, 175],
-[0, 200, 255],
-[50, 120, 255],
-[0, 175, 0],
-[0, 60, 135],
-[80, 240, 150],
-[150, 240, 255],
-[0, 0, 255],
-[255, 255, 50]]
+classes_colors = [
+    # [0, 0, 254],     # "unlabeled"
+    [245, 150, 100], # "car" 10
+    [245, 230, 100], # "bicycle" 11
+    [150, 60, 30],   # "motorcycle" 15
+    [180, 30, 80],   # "truck" 18
+    [254, 0, 0],     # "other-vehicle" 20
+    [30, 30, 254],   # "person" 30
+    [200, 40, 254],  # "bicyclist" 31 
+    [90, 30, 150],   # "motorcyclist" 32
+    [255, 0, 255], # "road" 40
+    [254, 150, 254], # "parking" 44
+    [75, 0, 75],     # "sidewalk" 48
+    [75, 0, 175],    # "other-ground" 49 
+    [0, 200, 254],   # "building" 50
+    [50, 120, 254],  # "fence" 51
+    [0, 175, 0],     # "vegetation" 70
+    [0, 60, 135],    # "trunk" 71
+    [80, 240, 150],  # "terrain" 72
+    [150, 240, 254], # "pole" 80
+    [0, 0, 254]      # "traffic-sign" 81
+]
+
 classes_cmap = []
 for rgb in (np.uint8(classes_colors)):
     hex_str = rgb_to_hex(rgb)
@@ -62,23 +68,24 @@ for rgb in (np.uint8(classes_colors)):
 skip=2
 sorted(glob.glob('*.png'))
 sequence = "08"
-split = "valid"
+split = "test"
 predictions_path = "output/{}/sequences/{}/predictions/".format(split, sequence)
 paths = []
 for infile in sorted(glob.glob( os.path.join(predictions_path, '*.label') )):
     paths.append(infile)
 print(len(paths))
+print("Generating video...")
 
-classes_colors2 = np.uint8(classes_colors)
+classes_colors2 = np.uint8(classes_colors)[:,::-1]
 color_0 = np.array([[0,0,0]])
-classes_colors2 = np.concatenate((color_0,classes_colors))
+classes_colors2 = np.concatenate((color_0,classes_colors2))
 
 # Create images
 plt.ioff()
 
 for i, path in enumerate(tqdm(paths)):
-    if i % skip == 0:
-        continue
+    # if i % skip == 0:
+    #     continue
     
     prediction = np.fromfile(path, dtype=np.uint16) 
     prediction = np.int32(prediction.reshape(config.COMPLETION.FULL_SCALE))
@@ -104,15 +111,17 @@ for i, path in enumerate(tqdm(paths)):
     colors = classes_colors2[colors]
     colors = np.float32(colors)/255.0
     
-    fig = plt.figure(figsize=(15, 15))
+    fig = plt.figure(figsize=(12, 12))
     ax = fig.add_subplot(projection='3d')
     # ax = plt.axes(projection='3d')
-    ax.set_xlim([0, 256])
-    ax.set_ylim([0, 256])
-    ax.set_zlim([0, 32])
+    ax.set_xlim([int(shapes[level][0]*0.15), int(shapes[level][0]*0.85)])
+    ax.set_ylim([int(shapes[level][1]*0.15), int(shapes[level][1]*0.85)])
+    ax.set_zlim([int(shapes[level][2]*0.15), int(shapes[level][2]*0.85)])
     ax.set_box_aspect((np.ptp(locs_x), np.ptp(locs_y), np.ptp(locs_z)))  # aspect ratio is 1:1:1 in data space
-    ax.scatter(locs_x, locs_y, locs_z, s=10.0,  c=colors, edgecolors='k',linewidths=0.1)
-    ax.view_init(elev=20., azim=180.)
+    # ax.scatter(locs_x, locs_y, locs_z, s=10.0,  c=colors, edgecolors='k',linewidths=0.1)
+    ax.scatter(locs_x, locs_y, locs_z, c=colors, edgecolors='k',linewidths=0.25, marker='s', s=10.0)
+    ax.view_init(elev=35., azim=210.)
+
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
@@ -120,20 +129,13 @@ for i, path in enumerate(tqdm(paths)):
     
     plt.grid(False)
     plt.axis('off')
-    # plt.margins(0,0,0)
-    # plt.gca().xaxis.set_major_locator(plt.NullLocator())
-    # plt.gca().yaxis.set_major_locator(plt.NullLocator())
-    # plt.gca().zaxis.set_major_locator(plt.NullLocator())
-    # plt.gca().set_axis_off()
-    # plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, 
-    #         hspace = 0, wspace = 0)
-    # plt.subplots_adjust(0,0,1,1,0,0)
-    # for ax in fig.axes:
-    #     ax.axis('off')
-    #     ax.margins(0,0,0)
-    #     ax.xaxis.set_major_locator(plt.NullLocator())
-    #     ax.yaxis.set_major_locator(plt.NullLocator())
-    # plt.tight_layout(pad=0)
+    plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+    
+    if not os.path.exists('output/imgs/{}/'.format(sequence)):
+        os.makedirs('output/imgs/{}/'.format(sequence))
+        print("Creating folder: ", 'output/imgs/{}/'.format(sequence))
+        Path('output/imgs/{}/'.format(sequence)).mkdir(parents=True, exist_ok=True)
     plt.savefig('output/imgs/{}/screenshot_{:05d}.png'.format(sequence,i), bbox_inches='tight',dpi=100, pad_inches=0)
     plt.close()
     
@@ -150,11 +152,11 @@ print(paths[0])
 frame = cv2.imread(paths[0])
 height, width, layers = frame.shape
 # print(frame.shape)
-width = 586
-height = 620
-video_name = 'output/gifs/video{}.mp4'.format(sequence)
+width = 586*2
+height = 620*2
+video_name = 'output/video/{}.mp4'.format(sequence)
 fourcc = cv2.VideoWriter_fourcc(*'MP4V')
-video = cv2.VideoWriter(video_name, fourcc=cv2.VideoWriter_fourcc(*"mp4v"), fps=10.0, frameSize=(width,height), isColor=True)
+video = cv2.VideoWriter(video_name, fourcc=cv2.VideoWriter_fourcc(*"mp4v"), fps=5.0, frameSize=(width,height), isColor=True)
 
 for i, image_name in enumerate(paths):
 #     if i>10:
@@ -169,98 +171,107 @@ cv2.destroyAllWindows()
 video.release()
 
 
-## Create input images
+## =================== Create input images
+# config.merge_from_file("/usr/stud/gaj/ssc/semantic-scene-completion/semantic-scene-completion/configs/ssc.yaml")
 
-config.GENERAL.OVERFIT = False
-config.TRAIN.AUGMENT = False
-config.TRAIN.NOISE_LEVEL = 0.0
-config.TRAIN.NUM_WORKERS = 1
-train_dataset = SemanticKITTIDataset("test",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT, augment=config.TRAIN.AUGMENT)
-train_data_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=config.TRAIN.BATCH_SIZE,
-        collate_fn=MergeTest,
-        num_workers=config.TRAIN.NUM_WORKERS,
-        pin_memory=True,
-        shuffle=False,
-        drop_last=True,
-        worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
-    )
+# config.GENERAL.OVERFIT = False
+# config.TRAIN.AUGMENT = False
+# config.TRAIN.NOISE_LEVEL = 0.0
+# config.TRAIN.NUM_WORKERS = 1
+# train_dataset = SemanticKITTIDataset("test",do_overfit=config.GENERAL.OVERFIT, num_samples_overfit=config.GENERAL.NUM_SAMPLES_OVERFIT, augment=config.TRAIN.AUGMENT)
+# train_data_loader = torch.utils.data.DataLoader(
+#         train_dataset,
+#         batch_size=config.TRAIN.BATCH_SIZE,
+#         collate_fn=MergeTest,
+#         num_workers=config.TRAIN.NUM_WORKERS,
+#         pin_memory=True,
+#         shuffle=False,
+#         drop_last=True,
+#         worker_init_fn=lambda x: np.random.seed(x + int(time.time()))
+#     )
 
 
 
-viridis = cm.get_cmap('plasma', 128)
-viridis_colors = np.array(viridis.colors)
+# viridis = cm.get_cmap('plasma', 128)
+# viridis_colors = np.array(viridis.colors)
 
-pbar = tqdm(train_data_loader)
-for i, batch in enumerate(pbar):
-# for i in range(1):
-    # batch = next(iter(train_data_loader))
-    if i % skip == 0:
-        continue
-    filenames, complet_inputs, _, _ = batch
-    coords = collect(complet_inputs, "complet_coords").squeeze()
-    complet_features = collect(complet_inputs, "complet_features")[0]
+# pbar = tqdm(train_data_loader)
+# for i, batch in enumerate(pbar):
+# # for i in range(1):
+#     # batch = next(iter(train_data_loader))
+#     # if i % skip == 0:
+#     #     continue
+#     filenames, complet_inputs, _, _ = batch
+#     coords = collect(complet_inputs, "complet_coords").squeeze()
+#     complet_features = collect(complet_inputs, "complet_features")[0]
     
-    coords_np = coords[:,1:].detach().cpu().numpy()
-    coords_np = coords_np.astype(int)
-    voxels = np.zeros((256,256,32))
-    # voxels[coords_np[:,0],coords_np[:,1],coords_np[:,2]]=np.int32(complet_features.detach().cpu().numpy()[0]*10.0)
-    voxels[coords_np[:,0],coords_np[:,1],coords_np[:,2]]=(np.uint8(complet_features.detach().cpu().numpy()*126.0)+1.0)
+#     coords_np = coords[:,1:].detach().cpu().numpy()
+#     coords_np = coords_np.astype(int)
+#     voxels = np.zeros((256,256,32))
+#     # voxels[coords_np[:,0],coords_np[:,1],coords_np[:,2]]=np.int32(complet_features.detach().cpu().numpy()[0]*10.0)
+#     voxels[coords_np[:,0],coords_np[:,1],coords_np[:,2]]=(np.uint8(complet_features.detach().cpu().numpy()*126.0)+1.0)
     
-    locs_x, locs_y, locs_z = np.nonzero(voxels)
-    locs = np.zeros((locs_x.shape[0],3))
-    locs[:,0] = locs_x
-    locs[:,1] = locs_y
-    locs[:,2] = locs_z
-    colors = voxels[locs_x,locs_y,locs_z]
-    colors = viridis_colors[np.uint8(colors)]
-    # colors = np.float32(colors)/255.0
+#     locs_x, locs_y, locs_z = np.nonzero(voxels)
+#     locs = np.zeros((locs_x.shape[0],3))
+#     locs[:,0] = locs_x
+#     locs[:,1] = locs_y
+#     locs[:,2] = locs_z
+#     colors = voxels[locs_x,locs_y,locs_z]
+#     colors = viridis_colors[np.uint8(colors)]
+#     # colors = np.float32(colors)/255.0
     
-    fig = plt.figure(figsize=(15, 15))
-    ax = fig.add_subplot(projection='3d')
-    # ax = plt.axes(projection='3d')
-    ax.set_xlim([0, 256])
-    ax.set_ylim([0, 256])
-    ax.set_zlim([0, 32])
-    ax.set_box_aspect((np.ptp(locs_x), np.ptp(locs_y), np.ptp(locs_z)))  # aspect ratio is 1:1:1 in data space
-    ax.scatter(locs_x, locs_y, locs_z, c=colors, edgecolors='k',linewidths=0.1, s=3.0)
-    ax.view_init(elev=20., azim=180.)
+#     fig = plt.figure(figsize=(12, 12))
+#     ax = fig.add_subplot(projection='3d')
+#     # ax = plt.axes(projection='3d')
+#     ax.set_xlim([int(shapes[level][0]*0.15), int(shapes[level][0]*0.85)])
+#     ax.set_ylim([int(shapes[level][1]*0.15), int(shapes[level][1]*0.85)])
+#     ax.set_zlim([int(shapes[level][2]*0.15), int(shapes[level][2]*0.85)])
+#     ax.set_box_aspect((np.ptp(locs_x), np.ptp(locs_y), np.ptp(locs_z)))  # aspect ratio is 1:1:1 in data space
+#     ax.scatter(locs_x, locs_y, locs_z, c=colors, edgecolors='k',linewidths=0.1, s=3.0)
+#     # ax.view_init(elev=20., azim=180.)
+#     ax.view_init(elev=35., azim=210.)
 
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    plt.grid(False)
-    plt.axis('off')
-    plt.savefig('output/imgs_input/{}/screenshot_{:05d}.png'.format(sequence,i), bbox_inches='tight')
-    plt.close()
 
-# Create video input
-sorted(glob.glob('*.png'))
-predictions_path = "output/imgs_input/{}/".format(sequence)
-paths = []
+#     ax.set_xlabel('X')
+#     ax.set_ylabel('Y')
+#     ax.set_zlabel('Z')
+#     plt.grid(False)
+#     plt.axis('off')
+#     plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
 
-for infile in sorted(glob.glob( os.path.join(predictions_path, '*.png') )):
-    paths.append(infile)
-print(len(paths))
-print(paths[0])
-frame = cv2.imread(paths[0])
-height, width, layers = frame.shape
-# print(frame.shape)
-width = 732
-height = 775
-video_name = 'output/gifs/video_input{}.mp4'.format(sequence)
-fourcc = cv2.VideoWriter_fourcc(*'MP4V')
-video = cv2.VideoWriter(video_name, fourcc=cv2.VideoWriter_fourcc(*"mp4v"), fps=10.0, frameSize=(width,height), isColor=True)
+#     if not os.path.exists('output/imgs_input/{}/'.format(sequence)):
+#         os.makedirs('output/imgs_input/{}/'.format(sequence))
+#         print("Creating folder: ", 'output/imgs_input/{}/'.format(sequence))
+#         Path('output/imgs_input/{}/'.format(sequence)).mkdir(parents=True, exist_ok=True)
+#     plt.savefig('output/imgs_input/{}/screenshot_{:05d}.png'.format(sequence,i), bbox_inches='tight')
+#     plt.close()
 
-for i, image_name in enumerate(paths):
-#     if i>10:
+# # Create video input
+# sorted(glob.glob('*.png'))
+# predictions_path = "output/imgs_input/{}/".format(sequence)
+# paths = []
+
+# for infile in sorted(glob.glob( os.path.join(predictions_path, '*.png') )):
+#     paths.append(infile)
+# print(len(paths))
+# print(paths[0])
+# frame = cv2.imread(paths[0])
+# # height, width, layers = frame.shape
+# # # print(frame.shape)
+# # width = 732
+# # height = 775
+# video_name = 'output/video/{}_input.mp4'.format(sequence)
+# fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+# video = cv2.VideoWriter(video_name, fourcc=cv2.VideoWriter_fourcc(*"mp4v"), fps=5.0, frameSize=(width,height), isColor=True)
+
+# for i, image_name in enumerate(paths):
+# #     if i>10:
+# #         break
+#     img = cv2.imread(image_name)
+#     img = cv2.resize(img, (width,height), interpolation = cv2.INTER_AREA)
+#     video.write(img)
+#     if cv2.waitKey(1) & 0xFF == ord('q'):
 #         break
-    img = cv2.imread(image_name)
-    img = cv2.resize(img, (width,height), interpolation = cv2.INTER_AREA)
-    video.write(img)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
 
-cv2.destroyAllWindows()
-video.release()
+# cv2.destroyAllWindows()
+# video.release()
