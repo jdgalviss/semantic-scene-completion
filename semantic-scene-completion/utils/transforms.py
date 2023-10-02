@@ -1,37 +1,4 @@
 import torch
-import numpy as np
-
-def label_rectification(grid_ind, voxel_label, instance_label, 
-                        dynamic_classes=[1,4,5,6,7,8],
-                        voxel_shape=(256,256,32),
-                        ignore_class_label=255):
-    # print("LABEL RECTIFICATION")
-    segmentation_label = voxel_label[grid_ind[:,0], grid_ind[:,1], grid_ind[:,2]]
-    
-    for c in dynamic_classes:
-        voxel_pos_class_c = (voxel_label==c).astype(int)
-        instance_label_class_c = instance_label[segmentation_label==c].squeeze(1)
-        
-        if len(instance_label_class_c) == 0:
-            pos_to_remove = voxel_pos_class_c
-        
-        elif len(instance_label_class_c) > 0 and np.sum(voxel_pos_class_c) > 0:
-            mask_class_c = np.zeros(voxel_shape, dtype=int)
-            point_pos_class_c = grid_ind[segmentation_label==c]
-            uniq_instance_label_class_c = np.unique(instance_label_class_c)
-            
-            for i in uniq_instance_label_class_c:
-               point_pos_instance_i = point_pos_class_c[instance_label_class_c==i]
-               x_max, y_max, z_max = np.amax(point_pos_instance_i, axis=0)
-               x_min, y_min, z_min = np.amin(point_pos_instance_i, axis=0)
-               
-               mask_class_c[x_min:x_max,y_min:y_max,z_min:z_max] = 1
-        
-            pos_to_remove = (voxel_pos_class_c - mask_class_c) > 0
-        
-        voxel_label[pos_to_remove] = ignore_class_label
-            
-    return voxel_label
 
 def get_bev(voxels):
     '''
