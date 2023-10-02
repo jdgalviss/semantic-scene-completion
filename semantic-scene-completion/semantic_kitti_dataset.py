@@ -10,10 +10,10 @@ from spconv.pytorch.utils import PointToVoxel
 from structures import FieldList
 from torch.nn import functional as F
 from scipy.spatial.transform import Rotation as R
-from utils.transforms import get_2d_input, get_bev
+from utils.transforms import get_2d_input, get_bev, label_rectification
 from configs import config
 from typing import Tuple, Dict, List
-
+import time
 config_file = os.path.join('configs/semantic-kitti.yaml')
 kitti_config = yaml.safe_load(open(config_file, 'r'))
 remapdict = kitti_config["learning_map"]
@@ -86,6 +86,7 @@ class SemanticKITTIDataset(Dataset):
             do_overfit: (bool) whether to overfit to a subsample of the dataset
             num_samples_overfit: (int) number of samples to overfit to
         """
+        self._rectify_labels = config.MODEL.RECTIFY_LABELS and (split == 'train')
         self.split = split
         self.augment = augment
         self.files = {}
@@ -247,6 +248,7 @@ class SemanticKITTIDataset(Dataset):
             aliment_collection: dictionary with aligned voxelized data
             seg_collection: dictionary with pointcloud segmentation data
         """
+        # t = 0
         completion_collection = {}
         if self.augment:
             flip_mode = np.random.randint(0,4)
@@ -258,31 +260,7 @@ class SemanticKITTIDataset(Dataset):
             rot_zyx=[0,0,0]
         completion_collection['flip_mode'] = flip_mode
 
-        ''''Completion labeled data'''
-        # read raw data and unpack (if necessary) iterating over different types of labels data (labels, invalid, occluded) at different scales
-        for typ in self.files.keys():
-            if typ == "label" or typ == "label_128" or typ == "label_64":
-                scan_data = np.fromfile(self.files[typ][t], dtype=np.uint16)            
-            else:
-                scan_data = unpack(np.fromfile(self.files[typ][t], dtype=np.uint8))
-            
-            if typ == "label":
-                scan_data = self.comletion_remap_lut[scan_data]
-            if typ == "label_128" or typ == "invalid_128":
-                scan_data = np.int32(scan_data.reshape(config.COMPLETION.SECOND_SCALE))
-            elif typ == "label_64" or typ == "invalid_64":
-                scan_data = np.int32(scan_data.reshape(config.COMPLETION.THIRD_SCALE))
-            else:
-                scan_data = scan_data.reshape(config.COMPLETION.FULL_SCALE)
-            levels = {"label":256, "label_128":128, "label_64":64, "invalid":256, "invalid_128":128, "invalid_64":64}
-            try:
-                level=levels[typ]
-            except:
-                level=-1
-            # perform data augmentation on label data
-            scan_data = self.data_augmentation(torch.Tensor(scan_data).unsqueeze(0), flip_mode, rot_zyx, level)
-            # Save in dictionary
-            completion_collection[typ] = scan_data
+        
         
         '''Pointcloud input and label Data'''
         if self.split != 'test':
@@ -292,19 +270,21 @@ class SemanticKITTIDataset(Dataset):
             scan.open_label(seg_label_name)
             remissions = scan.remissions
             xyz = scan.points
-            label = scan.sem_label
-            label = self.seg_remap_lut[label]
+            label_raw  = scan.sem_label
+            label = self.seg_remap_lut[label_raw]
             # xyz, remissions, label = self.points_in_range(xyz,remissions,label)
-            if config.MODEL.DISTILLATION: # If we are doing distillation we need the multisample pointcloud
+            if self._rectify_labels: # If we are doing distillation we need the multisample pointcloud
                 split, idx = self.filenames[t]
                 # split = int(split)
                 idx = int(idx)
-                extra_idxs  = [(idx+i*10) for i in range(1,config.MODEL.DISTILLATION_SAMPLES) if (idx+i*10)<(self.samples_per_split[split]-1)]
+                extra_idxs  = [(idx+i*1) for i in range(1,5) if (idx+i*1)<(self.samples_per_split[split]-1)]
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
                 remissions_multi = remissions.copy()
-                label_multi = label.copy()
-                id_multi = np.zeros_like(label)
+                instance_label = label_raw.copy()
+                instance_label = instance_label & 0xFFFF  # delete high 16 digits binary
+
+                # id_multi = np.zeros_like(remissions_multi)
                 T0 = self.all_poses[split][idx]
                 count = 1
                 for i in extra_idxs:
@@ -316,7 +296,7 @@ class SemanticKITTIDataset(Dataset):
                     remissions_aux = scan.remissions
                     xyz_aux = scan.points
                     label_aux = scan.sem_label
-                    label_aux = self.seg_remap_lut[label_aux]
+                    # label_aux = self.seg_remap_lut[label_aux]
                     xyz_multi_raw = np.concatenate((xyz_multi_raw, xyz_aux), axis=0)
                     # Transform to the same coordinate system as the first frame using homogeneous transformations
                     Ti = self.all_poses[split][i]
@@ -326,24 +306,22 @@ class SemanticKITTIDataset(Dataset):
                     xyz_aux = np.matmul(xyz_aux_h, T.T)[:, :3]
                     xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
                     remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
-                    label_multi = np.concatenate((label_multi, label_aux), axis=0)
-                    id_multi = np.concatenate((id_multi, count*np.ones_like(label_aux)), axis=0)
+                    label_aux = label_aux & 0xFFFF  # delete high 16 digits binary
+                    
+                    instance_label = np.concatenate((instance_label, label_aux), axis=0)
+                    # id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_multi)), axis=0)
                     count += 1
                 if config.MODEL.USE_COORDS:
                     feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
                 else:
                     feature_multi = remissions_multi.reshape(-1, 1)
-                # Add noise augmentation to input data
-                if self.augment:
-                    feature_multi += np.random.randn(*feature_multi.shape)*config.TRAIN.NOISE_LEVEL
-            
         else: # For test split we don't have labels
             seg_point_name = self.seg_path + self.files['input'][t][self.files['input'][t].find('sequences'):].replace('voxels','velodyne')
             scan.open_scan(seg_point_name)
             xyz = scan.points
             remissions = scan.remissions
             label = None
-            label_multi = None
+            instance_label = None
             if config.MODEL.DISTILLATION: # If we are doing distillation we need the multisample pointcloud
                 split, idx = self.filenames[t]
                 # split = int(split)
@@ -352,7 +330,7 @@ class SemanticKITTIDataset(Dataset):
                 xyz_multi = xyz.copy()
                 xyz_multi_raw = xyz.copy()
                 remissions_multi = remissions.copy()
-                id_multi = np.zeros_like(remissions)
+                # id_multi = np.zeros_like(remissions)
                 T0 = self.all_poses[split][idx]
                 count = 1
                 for i in extra_idxs:
@@ -375,7 +353,7 @@ class SemanticKITTIDataset(Dataset):
                     xyz_multi = np.concatenate((xyz_multi, xyz_aux), axis=0)
                     remissions_multi = np.concatenate((remissions_multi, remissions_aux), axis=0)
                     # label_multi = np.concatenate((label_multi, label_aux), axis=0)
-                    id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_aux)), axis=0)
+                    # id_multi = np.concatenate((id_multi, count*np.ones_like(remissions_aux)), axis=0)
                     count += 1
                 if config.MODEL.USE_COORDS:
                     feature_multi = np.concatenate([xyz_multi_raw, remissions_multi.reshape(-1, 1)], 1)
@@ -416,22 +394,22 @@ class SemanticKITTIDataset(Dataset):
             if flip_mode == 1 or flip_mode == 2:
                 xyz[:,1] = -xyz[:,1]
             
-            if config.MODEL.DISTILLATION: # Apply same rotation and flip to multisample pointcloud
-                # Drop points randomly from pointcloud
-                # keep_idxs = np.random.uniform(size=xyz_multi.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
-                # xyz_multi = xyz_multi[keep_idxs]
-                # label_multi = label_multi[keep_idxs]
-                # feature_multi = feature_multi[keep_idxs]
-                # id_multi = id_multi[keep_idxs]
-                # rotate
-                xyz_multi = np.matmul(xyz_multi,r)
-                # Add translations
-                # translation = (np.random.normal(size=xyz_multi.shape))*0.04
-                # mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
-                # translation[mask] = 0.0
-                # xyz_multi+=translation
-                if flip_mode == 1 or flip_mode == 2:
-                    xyz_multi[:,1] = -xyz_multi[:,1]
+            # if self._rectify_labels: # Apply same rotation and flip to multisample pointcloud
+            #     # Drop points randomly from pointcloud
+            #     # keep_idxs = np.random.uniform(size=xyz_multi.shape[0]) < (1.0 - config.TRAIN.RANDOM_PC_DROP_AUG)
+            #     # xyz_multi = xyz_multi[keep_idxs]
+            #     # label_multi = label_multi[keep_idxs]
+            #     # feature_multi = feature_multi[keep_idxs]
+            #     # id_multi = id_multi[keep_idxs]
+            #     # rotate
+            #     xyz_multi = np.matmul(xyz_multi,r)
+            #     # Add translations
+            #     # translation = (np.random.normal(size=xyz_multi.shape))*0.04
+            #     # mask = np.random.uniform(size=translation.shape) < (1.0 - config.TRAIN.RANDOM_TRANSLATION_PROB)
+            #     # translation[mask] = 0.0
+            #     # xyz_multi+=translation
+            #     if flip_mode == 1 or flip_mode == 2:
+            #         xyz_multi[:,1] = -xyz_multi[:,1]
 
         # Process pointcloud data
         segmentation_collection = {}
@@ -442,14 +420,15 @@ class SemanticKITTIDataset(Dataset):
             'feature': feature,
         })
 
-        if config.MODEL.DISTILLATION: # Add multisample pointcloud data when performing distillation
-            coords_multi, label_multi, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, label_multi, feature_multi, m, random1, random2)
+        if self._rectify_labels:
+            instance_label = np.int32(instance_label)
+            coords_multi, instance_label_torch, feature_multi, idxs_multi , _, _, _= self.process_seg_data(xyz_multi, instance_label, feature_multi, m, random1, random2)
             segmentation_collection.update({
                 'coords_multi': coords_multi,
                 'feature_multi': feature_multi,
-                'label_multi': label_multi,
+                'instance_label': instance_label_torch,
             })
-            segmentation_collection.update({'id_multi': id_multi[idxs_multi]})
+            # segmentation_collection.update({'id_multi': id_multi[idxs_multi]})
 
         '''Aligned voxelized input data'''
         aliment_collection = {}
@@ -473,6 +452,42 @@ class SemanticKITTIDataset(Dataset):
         intensity_voxels[:,coords[:,0],coords[:,1],coords[:,2]] = features
         input2d = get_2d_input(intensity_voxels,coords).unsqueeze(0)
 
+        ''''Completion labeled data'''
+        # read raw data and unpack (if necessary) iterating over different types of labels data (labels, invalid, occluded) at different scales
+        for typ in self.files.keys():
+            if typ == "label" or typ == "label_128" or typ == "label_64":
+                scan_data = np.fromfile(self.files[typ][t], dtype=np.uint16)            
+            else:
+                scan_data = unpack(np.fromfile(self.files[typ][t], dtype=np.uint8))
+            
+            if typ == "label":
+                scan_data = self.comletion_remap_lut[scan_data]
+            if typ == "label_128" or typ == "invalid_128":
+                scan_data = np.int32(scan_data.reshape(config.COMPLETION.SECOND_SCALE))
+            elif typ == "label_64" or typ == "invalid_64":
+                scan_data = np.int32(scan_data.reshape(config.COMPLETION.THIRD_SCALE))
+            else:
+                scan_data = scan_data.reshape(config.COMPLETION.FULL_SCALE)
+            levels = {"label":256, "label_128":128, "label_64":64, "invalid":256, "invalid_128":128, "invalid_64":64}
+            try:
+                level=levels[typ]
+            except:
+                level=-1
+            
+            # Rectify labels
+            if self._rectify_labels:
+                if typ == "label":
+                    scan_data = self.rectify_labels(scan_data.copy(), instance_label, xyz_multi, config.COMPLETION.FULL_SCALE)
+                elif typ == "label_128":
+                    scan_data = self.rectify_labels(scan_data.copy(), instance_label, xyz_multi, config.COMPLETION.SECOND_SCALE)
+                elif typ == "label_64":
+                    scan_data = self.rectify_labels(scan_data.copy(), instance_label, xyz_multi, config.COMPLETION.THIRD_SCALE)
+            # perform data augmentation on label data
+            scan_data = self.data_augmentation(torch.Tensor(scan_data).unsqueeze(0), flip_mode, rot_zyx, level)
+            # Save in dictionary
+            completion_collection[typ] = scan_data
+
+
         if self.split != 'test':
             bev_labels = get_bev(completion_collection['label'])
             aliment_collection.update({'bev_labels': bev_labels})
@@ -490,7 +505,9 @@ class SemanticKITTIDataset(Dataset):
             'input2d': input2d,
         })
 
-        if config.MODEL.DISTILLATION: # Aligned voxelized input for multisample pointcloud
+        # TODO: return voxel_labels (already have it), idxs (coords_multi), and instance_labels (from pc)
+
+        if self._rectify_labels: # Aligned voxelized input for multisample pointcloud
             xyz_multi = xyz_multi[idxs_multi]
             pc_multi = torch.from_numpy(np.concatenate([xyz_multi, np.arange(len(xyz_multi)).reshape(-1,1), feature_multi],-1)) # [x,y,z,idx,remission]
             voxels_multi, coords_multi, num_points_per_voxel_multi = self.voxel_generator(pc_multi)
@@ -511,7 +528,43 @@ class SemanticKITTIDataset(Dataset):
             })            
         return self.filenames[t], completion_collection, aliment_collection, segmentation_collection
 
-    
+    def rectify_labels(self, voxel_label: np.ndarray, instance_label: np.ndarray, xyz: np.ndarray, grid_size: List) -> np.ndarray:
+        '''
+        Rectify labels for using multiple pointcloud samples
+        Args:
+            label: label data
+            instance_label: instance label data
+            xyz_multi: pointcloud data
+            grid_size: level of the voxel grid: 64, 
+        '''
+        instance_label = np.expand_dims(instance_label, axis=1)
+        
+        # ------ Compute grid indices -------
+        coors_range_xyz = np.array(config.COMPLETION.POINT_CLOUD_RANGE)
+        cur_grid_size = np.array(grid_size)
+        min_bound = coors_range_xyz[:3]
+        max_bound = coors_range_xyz[3:]
+        crop_range = max_bound - min_bound
+        intervals = crop_range / (cur_grid_size - 1)
+
+        # valids
+        xyz0 = np.zeros_like(xyz)
+        for ci in range(3):
+            xyz0[xyz[:, ci] < min_bound[ci], :] = 1000
+            xyz0[xyz[:, ci] > max_bound[ci], :] = 1000
+        valid_inds = xyz0[:, 0] != 1000
+        xyz = xyz[valid_inds, :]
+        instance_label = instance_label[valid_inds,:]
+        grid_ind = (np.floor((np.clip(xyz, min_bound, max_bound) - min_bound) / intervals)).astype(int)
+
+        # print("voxel_label shape: {},{}".format(voxel_label.shape, voxel_label.dtype))
+        # print("instance_label shape: {},{}".format(instance_label.shape, instance_label.dtype))
+        # print("grid_ind shape: {}, {}".format(grid_ind.shape, grid_ind.dtype))
+        # print("grid_size: {}".format(grid_size))
+        
+        processed_label = label_rectification(grid_ind, np.uint8(voxel_label), instance_label, voxel_shape=tuple(grid_size))
+        return processed_label.astype(voxel_label.dtype)
+
 
     def data_augmentation(self, t: torch.Tensor, flip_mode: int, rot_zyx=[0,0,0], level=64, inp = False) -> torch.Tensor:
         '''
@@ -527,6 +580,7 @@ class SemanticKITTIDataset(Dataset):
             Augmented 4D tensor of shape (B, W, L, H)
         '''
         rot_zyx_flipped =  rot_zyx.copy()# TODO (juan.galvis): correction for unwanted flip
+        ## rot_zyx_flipped = [-rot_zyx[0], -rot_zyx[1], -rot_zyx[2]]
         assert t.dim() == 4, 'input dimension should be 4!'
         
         # ROTATION
@@ -550,6 +604,8 @@ class SemanticKITTIDataset(Dataset):
             valid = torch.where((locs_aug[:,1]>=0) & (locs_aug[:,2]>=0 ) & (locs_aug[:,3]>=0) & (locs_aug[:,1]<=(level-1)) & (locs_aug[:,2]<=(level-1)) & (locs_aug[:,3]<=((level/8)-1)))
             locs_aug = locs_aug[valid[0]]
             values = values[valid[0]]
+            ##values = t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]]
+            ##locs_aug = locs[valid[0]]
             # go back to voxel volume
             aug_t = torch.ones_like(t)*(-1)
             aug_t[locs_aug[:,0],locs_aug[:,1],locs_aug[:,2],locs_aug[:,3]] = values
@@ -616,7 +672,7 @@ def Merge(tbl):
     filenames = []
     offset = 0
     stats = []
-    if config.MODEL.DISTILLATION:
+    if config.MODEL.DISTILLATION: 
         voxel_centers_multi = []
         complet_coords_multi = []
         complet_features_multi = []
@@ -660,9 +716,9 @@ def Merge(tbl):
 
         if config.MODEL.DISTILLATION:
             seg_coord_multi = segmentation_collection['coords_multi']
-            seg_coords_multi.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord_multi], 1))
+            # seg_coords_multi.append(torch.cat([torch.LongTensor(np.int32(segmentation_collection["id_multi"])).unsqueeze(1), seg_coord_multi], 1))
             seg_features_multi.append(segmentation_collection['feature_multi'])
-            seg_labels_multi.append(segmentation_collection['label_multi'])
+            seg_labels_multi.append(segmentation_collection['instance_label'])
 
             complet_coord_multi = aliment_collection['coords_multi']
             complet_coord_multi = torch.cat([torch.Tensor(complet_coord_multi.shape[0], 1).fill_(idx), complet_coord_multi.float()], 1)
@@ -731,9 +787,11 @@ def Merge(tbl):
         complet_inputs.add_field("complet_coords_multi", complet_coords_multi.unsqueeze(0))
         complet_inputs.add_field("complet_features_multi", complet_features_multi.unsqueeze(0))
         complet_inputs.add_field("voxel_centers_multi", voxel_centers_multi.unsqueeze(0))
-        complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
+        # complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
         complet_inputs.add_field("seg_features_multi", torch.cat(seg_features_multi, 0))
-        complet_inputs.add_field("seg_labels_multi", torch.cat(seg_labels_multi, 0))
+        print("ADDING INSTANCE LABELS")
+        print(torch.cat(seg_labels_multi, 0).shape)
+        complet_inputs.add_field("instance_label", torch.cat(seg_labels_multi, 0))
         complet_inputs.add_field("complet_invoxel_features_multi", complet_invoxel_features_multi)
 
     return filenames, complet_inputs, None, filenames
@@ -753,7 +811,7 @@ def MergeTest(tbl):
         voxel_centers_multi = []
         complet_coords_multi = []
         complet_features_multi = []
-        seg_coords_multi = []
+        # seg_coords_multi = []
         seg_features_multi = []
         seg_labels_multi = []
         complet_invoxel_features_multi = []
@@ -781,7 +839,7 @@ def MergeTest(tbl):
 
         if config.MODEL.DISTILLATION:
             seg_coord_multi = segmentation_collection['coords_multi']
-            seg_coords_multi.append(torch.cat([torch.LongTensor(segmentation_collection["id_multi"]).unsqueeze(1), seg_coord_multi], 1))
+            # seg_coords_multi.append(torch.cat([torch.LongTensor(np.int32(segmentation_collection["id_multi"])).unsqueeze(1), seg_coord_multi], 1))
             seg_features_multi.append(segmentation_collection['feature_multi'])
             # seg_labels_multi.append(segmentation_collection['label_multi'])
 
@@ -812,7 +870,7 @@ def MergeTest(tbl):
         complet_inputs.add_field("complet_coords_multi", complet_coords_multi.unsqueeze(0))
         complet_inputs.add_field("complet_features_multi", complet_features_multi.unsqueeze(0))
         complet_inputs.add_field("voxel_centers_multi", voxel_centers_multi.unsqueeze(0))
-        complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
+        # complet_inputs.add_field("seg_coords_multi", torch.cat(seg_coords_multi, 0))
         complet_inputs.add_field("seg_features_multi", torch.cat(seg_features_multi, 0))
         # complet_inputs.add_field("seg_labels_multi", torch.cat(seg_labels_multi, 0))
         complet_inputs.add_field("complet_invoxel_features_multi", complet_invoxel_features_multi)
